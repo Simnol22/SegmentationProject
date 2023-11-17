@@ -116,3 +116,48 @@ class MedicalImageDataset(Dataset):
             mask = self.mask_transform(mask)
 
         return [img, mask, img_path]
+    
+
+class MyDataloader(object):
+    def __init__(self,args):
+        self.args = args
+        self.transform = transforms.Compose([
+            transforms.ToTensor()
+        ])
+    
+        self.mask_transform = transforms.Compose([
+            transforms.ToTensor()
+        ])
+    
+    def create_labelled_dataloaders(self):
+        train_set = MedicalImageDataset('train',
+                                        self.args.root_dir,
+                                        transform=self.transform,
+                                        mask_transform=self.mask_transform,
+                                        augment=self.args.augment,
+                                        equalize=True)
+
+        train_loader = DataLoader(train_set,
+                                batch_size=self.args.batch_size,
+                                worker_init_fn=np.random.seed(0),
+                                num_workers=self.args.num_workers,
+                                shuffle=True)
+        
+        val_set = MedicalImageDataset('val',
+                                    self.args.root_dir,
+                                    transform=self.transform,
+                                    mask_transform=self.mask_transform,
+                                    equalize=False)
+        
+        val_loader = DataLoader(val_set,
+                                batch_size=self.args.val_batch_size,
+                                worker_init_fn=np.random.seed(0),
+                                num_workers=self.args.num_workers,
+                                shuffle=False)
+        
+        return train_loader, val_loader 
+    
+    def create_unlabelled_dataloaders(self):
+        #TODO
+        unlabelled_loader = None
+        return unlabelled_loader
