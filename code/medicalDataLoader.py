@@ -147,7 +147,7 @@ class MyDataloader(object):
                                     self.args.root_dir,
                                     transform=self.transform,
                                     mask_transform=self.mask_transform,
-                                    equalize=False)
+                                    equalize=True)
         
         val_loader = DataLoader(val_set,
                                 batch_size=self.args.val_batch_size,

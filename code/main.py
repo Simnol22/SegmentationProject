@@ -19,7 +19,15 @@ from sklearn.metrics import confusion_matrix
 from torchmetrics import ConfusionMatrix
 
 
-
+def evaluation(pred, labels, num_classes):
+    confmat = ConfusionMatrix(task="multiclass", num_classes=4)
+    confmat = confmat(pred, labels).numpy()
+    accuracy = np.array([confmat[0,0]/confmat[:,0].sum(),
+                    confmat[1,1]/confmat[:,1].sum(),
+                    confmat[2,2]/confmat[:,2].sum(),
+                    confmat[3,3]/confmat[:,3].sum(),]).astype(float)
+    accuracy[accuracy==float('nan')] = 0
+    return accuracy
 
 class MyModel(object):
     def __init__(self, args):
@@ -35,7 +43,7 @@ class MyModel(object):
         self.model_directory = 'models/' + self.args.model + '/' + self.args.name
 
         # Model and optimizer
-        print(" Model Name: {}".format(self.args.model))
+        print("Nom du modèle : {}".format(self.args.model))
         match self.args.model:
             case 'Unet':
                 self.model = UNet(self.num_classes)
@@ -54,11 +62,11 @@ class MyModel(object):
         self.softMax = nn.Softmax()
         match self.args.loss:
             case 'CE':
-                self.loss = nn.CrossEntropyLoss(self.model.parameters())
+                self.loss = nn.CrossEntropyLoss()
             case 'focal':
                 self.loss = ...#nn.FocalLoss()
 
-        if self.args.cuda.is_available():
+        if self.args.cuda:
             self.model.cuda()
             self.softMax.cuda()
             self.loss.cuda()
@@ -71,18 +79,18 @@ class MyModel(object):
             self.optimiser.load_state_dict(self.checkpoints['optimiser_state_dict'])
 
         # Statistics
+        self.best_loss = 1000
         self.loss_training = []
 
 
-    def training(self):
+    def training(self, epoch):
         self.model.train()
-        lossEpoch = []
+        loss_epoch = []
         mean_acc = np.array([0,0,0,0]).astype(float)
         # DSCEpoch = []
         # DSCEpoch_w = []
         num_batches = len(self.train_loader)
         
-        n = 0
         ## FOR EACH BATCH
         for j, data in enumerate(self.train_loader):
             ### Set to zero all the gradients
@@ -98,57 +106,98 @@ class MyModel(object):
             pred = self.model.forward(images)
 
             # COMPUTE THE LOSS
-            CE_loss_value = self.loss(pred, labels)
-            lossTotal = CE_loss_value
+            loss_value = self.loss(pred, labels)
             # masks = torch.argmax(self.softMax(pred), dim=1)
 
             # DO THE STEPS FOR BACKPROP (two things to be done in pytorch)
-            lossTotal.backward()
+            loss_value.backward()
             self.optimizer.step()
-            confmat = ConfusionMatrix(task="multiclass", num_classes=4)
-            confmat = confmat(pred, labels).numpy()
-            accuracy = np.array([confmat[0,0]/confmat[:,0].sum(),
-                        confmat[1,1]/confmat[:,1].sum(),
-                        confmat[2,2]/confmat[:,2].sum(),
-                        confmat[3,3]/confmat[:,3].sum(),]).astype(float)
-
-            accuracy[accuracy==float('nan')] = 0
+            accuracy = evaluation(pred, labels, self.num_classes)
             mean_acc += accuracy
-            n += 1
             
             # THIS IS JUST TO VISUALIZE THE TRAINING 
-            lossEpoch.append(lossTotal.cpu().data.numpy())
+            loss_epoch.append(loss_value.cpu().data.numpy())
             printProgressBar(j + 1, num_batches,
-                             prefix="[Training] Epoch: {} ".format(i),
+                             prefix="[Training] Epoch: {} ".format(epoch),
                              length=15,
-                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}]".format(lossTotal,accuracy[0],accuracy[1],accuracy[2],accuracy[3]))
+                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}]"
+                             .format(loss_value.cpu(),accuracy[0],accuracy[1],accuracy[2],accuracy[3]))
         
-        mean_acc = mean_acc / n
-        lossEpoch = np.asarray(lossEpoch)
-        lossEpoch = lossEpoch.mean()
+        mean_acc = mean_acc / num_batches
+        mean_acc[mean_acc==float('nan')] = 0
 
-        lossTotalTraining.append(lossEpoch)
+        loss_epoch = np.asarray(loss_epoch)
+        loss_epoch = loss_epoch.mean()
+
+        self.loss_training.append(loss_epoch)
         printProgressBar(num_batches, num_batches,
-                             done="[Training] Epoch: {}, LossG: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}]".format(i,lossEpoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3]))
+                             done="[Training] Epoch: {}, LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}]"
+                             .format(epoch,loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3]))
 
 
-    def validation(self):
+    def validation(self, epoch):
         self.model.eval()
-        lossValEpoch = []
-        mean_val_acc = np.array([0,0,0,0]).astype(float)
-        num_batches_val = len(val_loader)
+        loss_epoch = []
+        mean_acc = np.array([0,0,0,0]).astype(float)
+        num_batches = len(self.val_loader)
 
+        self.model.eval()
+        n = 0
+        for j, data in enumerate(self.val_loader):
+            images, labels, _ = data
+            labels = getTargetSegmentation(to_var(labels))
+            images = to_var(images)
+            
+            pred = self.model.forward(images.float())
+
+            loss_value = self.loss(pred, labels)
+
+            accuracy = evaluation(pred, labels, self.num_classes)
+            mean_acc += accuracy
+            n += 1
+
+            loss_epoch.append(loss_value.cpu().data.numpy())
+            printProgressBar(j + 1, num_batches,
+                             prefix="[Validation] Epoch: {} ".format(epoch),
+                             length=15,
+                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}] ".format(loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3]))
+        
+        mean_acc = mean_acc / num_batches
+        mean_acc[mean_acc==float('nan')] = 0
+
+        loss_epoch = np.asarray(loss_epoch).mean()
+        if loss_epoch < self.best_loss:
+            self.save(loss_epoch,epoch)
+        
+        printProgressBar(num_batches, num_batches,
+                             done="[Validation] Epoch: {}, LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}]".format(epoch,loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3]))
 
 
     def inference(self):
         ...
 
 
+    def save(self, loss_value, epoch):
+        self.best_loss = loss_value
+        self.best_epoch = epoch
+        if not os.path.exists(self.model_directory):
+            os.makedirs(self.model_directory)
+        torch.save({'epoch': epoch,
+                    'batch_size':self.args.batch_size,
+                    'batch_size_val':self.args.val_batch_size,
+                    'lr':self.args.lr,
+                    'model_state_dict': self.model.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    }, self.model_directory + '/best_model')
+        if not os.path.exists(self.losses_directory):
+            os.makedirs(self.losses_directory)
+        np.save(os.path.join(self.losses_directory, 'Losses.npy'), self.loss_training)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Entrainement challenge MTI865")
     # Hyperparamètres généraux
-    parser.add_argument('--name', type=str, default='modele_test'
+    parser.add_argument('--name', type=str, default='modele_test',
                         help='Nom du modèle')
     parser.add_argument('--augment', action='store_true', default='False',
                         help='Augmentation des données')
@@ -168,9 +217,9 @@ def main():
     parser.add_argument('--batch-size', type=int, default=16,
                         metavar='N', help='Taille des batchs pour \
                                 l\'entrainement (défaut: 16)')
-    parser.add_argument('--val-batch-size', type=int, default=4,
+    parser.add_argument('--val-batch-size', type=int, default=8,
                         metavar='N', help='Taille des batchs pour la \
-                                validation (défaut: 4)')
+                                validation (défaut: 8)')
     # Hyperparamètres de l'optimiseur
     parser.add_argument('--optimizer', type=str, default='Adam',
                         choices=['Adam','SGD'])
@@ -194,7 +243,7 @@ def main():
 
     args = parser.parse_args()
     args.cuda = args.cuda and torch.cuda.is_available()
-    print("cuda disponible :",torch.cuda.is_available())
+    print("Cuda disponible :",torch.cuda.is_available())
 
     modele = MyModel(args)
 
