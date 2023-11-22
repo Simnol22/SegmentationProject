@@ -5,7 +5,11 @@ from medicalDataLoader import MyDataloader
 from utils import *
 from UNet_Base import *
 from data_augmentation import augment_data
-import losses
+from torchmetrics import ConfusionMatrix
+from nnUnet import *
+import random
+import torch
+import pdb
 
 # from torch.utils.data import DataLoader
 # from torchvision import transforms
@@ -42,7 +46,7 @@ class MyModel(object):
             case 'Unet':
                 self.model = UNet(self.num_classes)
             case 'nnUnet':
-                self.model = ...#nnUNet(self.num_classes)
+                self.model = nnUnet(self.num_classes)
 
         # Loss
         self.softMax = nn.Softmax()
