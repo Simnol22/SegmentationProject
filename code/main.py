@@ -1,33 +1,91 @@
-from torch.utils.data import DataLoader
-from torchvision import transforms
-from progressBar import printProgressBar
-
-from torchgeometry.losses import tversky
-
-from medicalDataLoader import MyDataloader
 import argparse
-from utils import *
-
-from UNet_Base import *
-import random
 import torch
-import pdb
-
-import matplotlib.pyplot as plt
-from sklearn.metrics import accuracy_score 
-from sklearn.metrics import confusion_matrix
+import losses
+from progressBar import printProgressBar
+from medicalDataLoader import MyDataloader
+from utils import *
+from UNet_Base import *
 from torchmetrics import ConfusionMatrix
+
+# from torch.utils.data import DataLoader
+# from torchvision import transforms
+# from torchgeometry.losses import tversky
+# import random
+# import pdb
+import matplotlib.pyplot as plt
+# from sklearn.metrics import accuracy_score 
+# from sklearn.metrics import confusion_matrix
 
 
 def evaluation(pred, labels, num_classes):
-    confmat = ConfusionMatrix(task="multiclass", num_classes=4)
+    confmat = ConfusionMatrix(task="multiclass", num_classes=num_classes)
     confmat = confmat(pred, labels).numpy()
     accuracy = np.array([confmat[0,0]/confmat[:,0].sum(),
-                    confmat[1,1]/confmat[:,1].sum(),
-                    confmat[2,2]/confmat[:,2].sum(),
-                    confmat[3,3]/confmat[:,3].sum(),]).astype(float)
-    accuracy[accuracy==float('nan')] = 0
+                         confmat[1,1]/confmat[:,1].sum(),
+                         confmat[2,2]/confmat[:,2].sum(),
+                         confmat[3,3]/confmat[:,3].sum(),]).astype(float)
+    accuracy[accuracy<0] = 0
+    accuracy[accuracy>1] = 0
+    accuracy[accuracy == float('nan')] = 0
+    accuracy[np.isnan(accuracy)] = 0
     return accuracy
+
+
+def args_to_command(args):
+    if args.loss_weights is None:
+        str_loss_weights = ''
+    else:
+        str_loss_weights = '--loss-weights '+str(args.loss_weights[0])+\
+            ' '+str(args.loss_weights[1])+' '+ \
+            str(args.loss_weights[2])+' '+str(args.loss_weights[3])
+    if args.augment is True:
+        str_augment = '--augment'
+    else:
+        str_augment = ''
+    if args.cuda is True:
+        str_cuda = '--cuda'
+    else:
+        str_cuda = ''
+    if args.non_label is True:
+        str_non_label = '--non-label'
+    else:
+        str_non_label = ''
+    if args.inference is True:
+        str_inference = '--inference'
+    else:
+        str_inference = ''
+
+    return 'python3 main.py --name={} --loss={} {} --model={} --num-workers={} --epochs={} --start-epoch={} --batch-size={} --val-batch-size={} --optimizer={} --lr={} --momentum={} --load-weights={} {} {} {} {}'.format(
+                args.name,
+                args.loss,
+                str_loss_weights,
+                args.model,
+                args.num_workers,
+                args.epochs,
+                args.start_epoch,
+                args.batch_size,
+                args.val_batch_size,
+                args.optimizer,
+                args.lr,
+                args.momentum,
+                args.load_weights,
+                str_augment,
+                str_cuda,
+                str_non_label,
+                str_inference)
+
+
+def save_args_to_sh(args):
+    PATH_HISTORY = './training_history'
+    if not os.path.exists(PATH_HISTORY):
+        os.makedirs(PATH_HISTORY)
+    i = 0
+    while os.path.exists(PATH_HISTORY+'/'+args.model+'_'+args.name+'_training_'+str(i)+'.sh'):
+        i += 1
+    f = open(r''+PATH_HISTORY+'/'+args.model+'_'+args.name+'_training_'+str(i)+'.sh','w')
+    f.write('#!/bin/sh\n')
+    f.write(args_to_command(args))
+
 
 class MyModel(object):
     def __init__(self, args):
@@ -42,7 +100,7 @@ class MyModel(object):
         self.losses_directory = 'Results/Statistics/' + self.args.model + '/' + self.args.name
         self.model_directory = 'models/' + self.args.model + '/' + self.args.name
 
-        # Model and optimizer
+        # Model
         print("Nom du modèle : {}".format(self.args.model))
         match self.args.model:
             case 'Unet':
@@ -50,6 +108,17 @@ class MyModel(object):
             case 'Unet':
                 self.model = ...#nnUNet(self.num_classes)
 
+        # Loss
+        self.softMax = nn.Softmax()
+        match self.args.loss:
+            case 'CE':
+                if self.args.loss_weights is None :
+                    self.loss = nn.CrossEntropyLoss()
+                else:
+                    w = torch.FloatTensor(self.args.loss_weights) # [.2,.7,.7,.7]
+                    self.loss = nn.CrossEntropyLoss(weight=w)
+
+        # Optimizer
         match self.args.optimizer:
             case 'SGD':
                 self.optimizer = torch.optim.SGD(self.model.parameters(), 
@@ -57,26 +126,40 @@ class MyModel(object):
                                                  weight_decay=5e-4, 
                                                  momentum=self.args.momentum)
             case 'Adam':
-                self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.args.lr)
+                self.optimizer = torch.optim.Adam(self.model.parameters(),
+                                                  lr=self.args.lr,
+                                                  betas=[.9,.999],
+                                                  weight_decay=0,
+                                                  momentum_decay=0.004)
+            case 'NAdam':
+                self.optimizer = torch.optim.NAdam(self.model.parameters(),
+                                                   lr=self.args.lr,
+                                                   betas=[.9,.999],
+                                                   weight_decay=0,
+                                                   momentum_decay=0.004)
+            case 'RAdam':
+                self.optimizer = torch.optim.RAdam(self.model.parameters(),
+                                                   lr=self.args.lr,
+                                                   betas=[.9,.999],
+                                                   weight_decay=0)
+            case 'Adamax':
+                self.optimizer = torch.optim.Adamax(self.model.parameters(),
+                                                    lr=self.args.lr,
+                                                    betas=[.9,.999],
+                                                    weight_decay=0)
 
-        self.softMax = nn.Softmax()
-        match self.args.loss:
-            case 'CE':
-                self.loss = nn.CrossEntropyLoss()
-            case 'focal':
-                self.loss = ...#nn.FocalLoss()
-
-        if self.args.cuda:
+        if self.args.cuda is True:
             self.model.cuda()
             self.softMax.cuda()
             self.loss.cuda()
 
-        if self.args.load_weights:
-            if self.args.cuda:
+        if not self.args.load_weights is None:
+            self.checkpoints = torch.load('./models/'+self.args.model+'/'+self.args.load_weights+'/best_model')
+            if self.args.cuda is True:
                 self.model.module.load_state_dict(self.checkpoints['model_state_dict'])
             else:
                 self.model.load_state_dict(self.checkpoints['model_state_dict'])
-            self.optimiser.load_state_dict(self.checkpoints['optimiser_state_dict'])
+            self.optimizer.load_state_dict(self.checkpoints['optimizer_state_dict'])
 
         # Statistics
         self.best_loss = 1000
@@ -99,20 +182,27 @@ class MyModel(object):
 
             ## GET IMAGES, LABELS and IMG NAMES
             images, labels, _ = data
-            labels = getTargetSegmentation(to_var(labels))
+            labels = to_var(getTargetSegmentation(labels))
             images = to_var(images)
 
             #-- The CNN makes its predictions (forward pass)
-            pred = self.model.forward(images)
+            pred = self.softMax(self.model.forward(images))
+
+            # pred = torch.argmax(self.softMax(self.model.forward(images)), dim=1)
+            # plt.imshow(pred.detach().numpy()[5])
+            # plt.colorbar()
+            # plt.show()
+            # plt.imshow(torch.argmax(labels, dim=1).numpy()[5])
+            # plt.colorbar()
+            # plt.show()
 
             # COMPUTE THE LOSS
             loss_value = self.loss(pred, labels)
-            # masks = torch.argmax(self.softMax(pred), dim=1)
 
             # DO THE STEPS FOR BACKPROP (two things to be done in pytorch)
             loss_value.backward()
             self.optimizer.step()
-            accuracy = evaluation(pred, labels, self.num_classes)
+            accuracy = evaluation(torch.argmax(pred, dim=1), labels, self.num_classes)
             mean_acc += accuracy
             
             # THIS IS JUST TO VISUALIZE THE TRAINING 
@@ -124,7 +214,7 @@ class MyModel(object):
                              .format(loss_value.cpu(),accuracy[0],accuracy[1],accuracy[2],accuracy[3]))
         
         mean_acc = mean_acc / num_batches
-        mean_acc[mean_acc==float('nan')] = 0
+        mean_acc[np.isnan(mean_acc)] = 0
 
         loss_epoch = np.asarray(loss_epoch)
         loss_epoch = loss_epoch.mean()
@@ -148,7 +238,7 @@ class MyModel(object):
             labels = getTargetSegmentation(to_var(labels))
             images = to_var(images)
             
-            pred = self.model.forward(images.float())
+            pred = self.softMax(self.model.forward(images.float()))
 
             loss_value = self.loss(pred, labels)
 
@@ -163,7 +253,7 @@ class MyModel(object):
                              suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}] ".format(loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3]))
         
         mean_acc = mean_acc / num_batches
-        mean_acc[mean_acc==float('nan')] = 0
+        mean_acc[np.isnan(mean_acc)] = 0
 
         loss_epoch = np.asarray(loss_epoch).mean()
         if loss_epoch < self.best_loss:
@@ -174,6 +264,7 @@ class MyModel(object):
 
 
     def inference(self):
+        # inference()
         ...
 
 
@@ -199,11 +290,13 @@ def main():
     # Hyperparamètres généraux
     parser.add_argument('--name', type=str, default='modele_test',
                         help='Nom du modèle')
-    parser.add_argument('--augment', action='store_true', default='False',
+    parser.add_argument('--augment', action='store_true', default=False,
                         help='Augmentation des données')
     parser.add_argument('--loss', type=str, default='CE',
-                        choices=['CE', 'focal'],
+                        choices=['CE', 'focal','tversky', 'focal-tversky', 'IoU', 'dice', 'combo'],
                         help='Choix de la loss (défaut: Unet)')
+    parser.add_argument('--loss-weights', nargs='+', type=float, default=None, action='store',
+                        help='Liste de 4 poids (défaut: None)')
     parser.add_argument('--model', type=str, default='Unet',
                         choices=['Unet', 'nnUnet'],
                         help='Choix du modèle (défaut: Unet)')
@@ -222,7 +315,7 @@ def main():
                                 validation (défaut: 8)')
     # Hyperparamètres de l'optimiseur
     parser.add_argument('--optimizer', type=str, default='Adam',
-                        choices=['Adam','SGD'])
+                        choices=['Adam','SGD','NAdam','RAdam','Adamax'])
     parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help='Learning rate ou taux d\'apprentissage (défaut: 0.001)')
     parser.add_argument('--momentum', type=float, default=0.9,
@@ -242,23 +335,22 @@ def main():
                         help='Réalise des prédictions et affiche les résultats')
 
     args = parser.parse_args()
+    save_args_to_sh(args)
+
     args.cuda = args.cuda and torch.cuda.is_available()
     print("Cuda disponible :",torch.cuda.is_available())
 
-    modele = MyModel(args)
+    model = MyModel(args)
 
     if args.inference is True:
         print('Inférence:')
-        modele.inference()
+        model.inference()
     else :
-        print('Epoch de départ:', modele.args.start_epoch)
-        print('Epochs totales:', modele.args.epochs)
-        for epoch in range(modele.args.start_epoch, modele.args.epochs):
-            if args.non_label:
-                ...
-            else:
-                modele.training(epoch)
-                modele.validation(epoch)
+        print('Epoch de départ:', model.args.start_epoch)
+        print('Epochs totales:', model.args.epochs)
+        for epoch in range(model.args.start_epoch, model.args.epochs):
+            model.training(epoch)
+            model.validation(epoch)
 
 
 if __name__ == "__main__":
