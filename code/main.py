@@ -1,11 +1,12 @@
 import argparse
 import torch
-import losses
 from progressBar import printProgressBar
 from medicalDataLoader import MyDataloader
 from utils import *
 from UNet_Base import *
 from torchmetrics import ConfusionMatrix
+from data_augmentation import augment_data
+import losses
 
 # from torch.utils.data import DataLoader
 # from torchvision import transforms
@@ -17,75 +18,6 @@ import matplotlib.pyplot as plt
 # from sklearn.metrics import confusion_matrix
 
 
-def evaluation(pred, labels, num_classes):
-    confmat = ConfusionMatrix(task="multiclass", num_classes=num_classes)
-    confmat = confmat(pred, labels).numpy()
-    accuracy = np.array([confmat[0,0]/confmat[:,0].sum(),
-                         confmat[1,1]/confmat[:,1].sum(),
-                         confmat[2,2]/confmat[:,2].sum(),
-                         confmat[3,3]/confmat[:,3].sum(),]).astype(float)
-    accuracy[accuracy<0] = 0
-    accuracy[accuracy>1] = 0
-    accuracy[accuracy == float('nan')] = 0
-    accuracy[np.isnan(accuracy)] = 0
-    return accuracy
-
-
-def args_to_command(args):
-    if args.loss_weights is None:
-        str_loss_weights = ''
-    else:
-        str_loss_weights = '--loss-weights '+str(args.loss_weights[0])+\
-            ' '+str(args.loss_weights[1])+' '+ \
-            str(args.loss_weights[2])+' '+str(args.loss_weights[3])
-    if args.augment is True:
-        str_augment = '--augment'
-    else:
-        str_augment = ''
-    if args.cuda is True:
-        str_cuda = '--cuda'
-    else:
-        str_cuda = ''
-    if args.non_label is True:
-        str_non_label = '--non-label'
-    else:
-        str_non_label = ''
-    if args.inference is True:
-        str_inference = '--inference'
-    else:
-        str_inference = ''
-
-    return 'python3 main.py --name={} --loss={} {} --model={} --num-workers={} --epochs={} --start-epoch={} --batch-size={} --val-batch-size={} --optimizer={} --lr={} --momentum={} --load-weights={} {} {} {} {}'.format(
-                args.name,
-                args.loss,
-                str_loss_weights,
-                args.model,
-                args.num_workers,
-                args.epochs,
-                args.start_epoch,
-                args.batch_size,
-                args.val_batch_size,
-                args.optimizer,
-                args.lr,
-                args.momentum,
-                args.load_weights,
-                str_augment,
-                str_cuda,
-                str_non_label,
-                str_inference)
-
-
-def save_args_to_sh(args):
-    PATH_HISTORY = './training_history'
-    if not os.path.exists(PATH_HISTORY):
-        os.makedirs(PATH_HISTORY)
-    i = 0
-    while os.path.exists(PATH_HISTORY+'/'+args.model+'_'+args.name+'_training_'+str(i)+'.sh'):
-        i += 1
-    f = open(r''+PATH_HISTORY+'/'+args.model+'_'+args.name+'_training_'+str(i)+'.sh','w')
-    f.write('#!/bin/sh\n')
-    f.write(args_to_command(args))
-
 
 class MyModel(object):
     def __init__(self, args):
@@ -93,6 +25,12 @@ class MyModel(object):
 
         # Chargement des données
         self.args.root_dir = './Data/'
+        self.args.augment_dir = './Augment/'
+
+        if self.args.augment is True:
+            augment_data(self.args.root_dir, self.args.augment_dir)
+            self.args.root_dir = self.args.augment_dir
+
         myDataLoader = MyDataloader(self.args)
         self.train_loader, self.val_loader = myDataLoader.create_labelled_dataloaders()
         self.unlabelled_loader = myDataLoader.create_unlabelled_dataloaders()
@@ -105,18 +43,21 @@ class MyModel(object):
         match self.args.model:
             case 'Unet':
                 self.model = UNet(self.num_classes)
-            case 'Unet':
+            case 'nnUnet':
                 self.model = ...#nnUNet(self.num_classes)
 
         # Loss
         self.softMax = nn.Softmax()
+        self.dice = losses.DiceLoss()
         match self.args.loss:
             case 'CE':
                 if self.args.loss_weights is None :
                     self.loss = nn.CrossEntropyLoss()
                 else:
-                    w = torch.FloatTensor(self.args.loss_weights) # [.2,.7,.7,.7]
+                    w = torch.FloatTensor(self.args.loss_weights)
                     self.loss = nn.CrossEntropyLoss(weight=w)
+            case 'Dice':
+                self.loss = losses.DiceLoss()
 
         # Optimizer
         match self.args.optimizer:
@@ -129,8 +70,7 @@ class MyModel(object):
                 self.optimizer = torch.optim.Adam(self.model.parameters(),
                                                   lr=self.args.lr,
                                                   betas=[.9,.999],
-                                                  weight_decay=0,
-                                                  momentum_decay=0.004)
+                                                  weight_decay=0)
             case 'NAdam':
                 self.optimizer = torch.optim.NAdam(self.model.parameters(),
                                                    lr=self.args.lr,
@@ -170,7 +110,7 @@ class MyModel(object):
         self.model.train()
         loss_epoch = []
         mean_acc = np.array([0,0,0,0]).astype(float)
-        # DSCEpoch = []
+        mean_dice = 0
         # DSCEpoch_w = []
         num_batches = len(self.train_loader)
         
@@ -188,84 +128,118 @@ class MyModel(object):
             #-- The CNN makes its predictions (forward pass)
             pred = self.softMax(self.model.forward(images))
 
-            # pred = torch.argmax(self.softMax(self.model.forward(images)), dim=1)
-            # plt.imshow(pred.detach().numpy()[5])
-            # plt.colorbar()
-            # plt.show()
-            # plt.imshow(torch.argmax(labels, dim=1).numpy()[5])
-            # plt.colorbar()
-            # plt.show()
-
             # COMPUTE THE LOSS
             loss_value = self.loss(pred, labels)
+            dice = self.dice(pred[:,3], labels)
 
             # DO THE STEPS FOR BACKPROP (two things to be done in pytorch)
             loss_value.backward()
             self.optimizer.step()
             accuracy = evaluation(torch.argmax(pred, dim=1), labels, self.num_classes)
             mean_acc += accuracy
-            
+            mean_dice += dice
+
             # THIS IS JUST TO VISUALIZE THE TRAINING 
             loss_epoch.append(loss_value.cpu().data.numpy())
             printProgressBar(j + 1, num_batches,
                              prefix="[Training] Epoch: {} ".format(epoch),
                              length=15,
-                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}]"
-                             .format(loss_value.cpu(),accuracy[0],accuracy[1],accuracy[2],accuracy[3]))
-        
+                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}"
+                             .format(loss_value.cpu(),accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice))
+
+        mean_dice = mean_dice / num_batches
         mean_acc = mean_acc / num_batches
         mean_acc[np.isnan(mean_acc)] = 0
 
-        loss_epoch = np.asarray(loss_epoch)
-        loss_epoch = loss_epoch.mean()
+        
+        loss_epoch = np.asarray(loss_epoch).mean()
 
         self.loss_training.append(loss_epoch)
         printProgressBar(num_batches, num_batches,
-                             done="[Training] Epoch: {}, LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}]"
-                             .format(epoch,loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3]))
+                             done="[Training] Epoch: {}, LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}"
+                             .format(epoch,loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3],mean_dice))
 
 
     def validation(self, epoch):
         self.model.eval()
         loss_epoch = []
+        mean_dice = 0
         mean_acc = np.array([0,0,0,0]).astype(float)
         num_batches = len(self.val_loader)
 
-        self.model.eval()
-        n = 0
         for j, data in enumerate(self.val_loader):
             images, labels, _ = data
             labels = getTargetSegmentation(to_var(labels))
             images = to_var(images)
-            
             pred = self.softMax(self.model.forward(images.float()))
-
             loss_value = self.loss(pred, labels)
-
             accuracy = evaluation(pred, labels, self.num_classes)
+            dice = self.dice(torch.argmax(pred, dim=1), labels)
             mean_acc += accuracy
-            n += 1
-
+            mean_dice += dice
+            # print('DSC = ',computeDSC(pred, labels))
             loss_epoch.append(loss_value.cpu().data.numpy())
             printProgressBar(j + 1, num_batches,
                              prefix="[Validation] Epoch: {} ".format(epoch),
                              length=15,
-                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}] ".format(loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3]))
+                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}"
+                             .format(loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice))
         
+        mean_dice = mean_dice / num_batches
         mean_acc = mean_acc / num_batches
         mean_acc[np.isnan(mean_acc)] = 0
 
         loss_epoch = np.asarray(loss_epoch).mean()
         if loss_epoch < self.best_loss:
-            self.save(loss_epoch,epoch)
+            self.save(loss_epoch, epoch)
         
         printProgressBar(num_batches, num_batches,
-                             done="[Validation] Epoch: {}, LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}]".format(epoch,loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3]))
+                             done="[Validation] Epoch: {}, LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}"
+                             .format(epoch,loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3],mean_dice))
 
 
     def inference(self):
-        # inference()
-        ...
+        self.model.eval()
+        loss_epoch = []
+        mean_acc = np.array([0,0,0,0]).astype(float)
+        num_batches = len(self.val_loader)
+
+        for j, data in enumerate(self.val_loader):
+            images, labels, _ = data
+            labels = getTargetSegmentation(to_var(labels))
+            images = to_var(images)
+            pred = self.softMax(self.model.forward(images.float()))
+            loss_value = self.loss(pred, labels)
+            accuracy = evaluation(pred, labels, self.num_classes)
+            mean_acc += accuracy
+
+            loss_epoch.append(loss_value.cpu().data.numpy())
+            printProgressBar(j + 1, num_batches,
+                             prefix="[Inference]",
+                             length=15,
+                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}] ".format(loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3]))
+            
+            for i, image in enumerate(images.numpy()):
+                fig = plt.figure()
+                plt.subplot(1,3,1).set_title('Image')
+                plt.imshow(image[0])
+                plt.subplot(1,3,2).set_title('Label')
+                plt.imshow(labels.numpy()[i])
+                plt.subplot(1,3,3).set_title('Prédiction')
+                plt.imshow(torch.argmax(pred, dim=1).numpy()[i])
+                fig.suptitle('Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}]'.format(
+                    loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3]))
+                plt.show()
+        
+        mean_acc = mean_acc / num_batches
+        mean_acc[np.isnan(mean_acc)] = 0
+
+        loss_epoch = np.asarray(loss_epoch).mean()
+        
+        printProgressBar(num_batches, num_batches,
+                             done="[Inference], LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}]".format(loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3]))
+
+
 
 
     def save(self, loss_value, epoch):
@@ -293,8 +267,7 @@ def main():
     parser.add_argument('--augment', action='store_true', default=False,
                         help='Augmentation des données')
     parser.add_argument('--loss', type=str, default='CE',
-                        choices=['CE', 'focal','tversky', 'focal-tversky', 'IoU', 'dice', 'combo'],
-                        help='Choix de la loss (défaut: Unet)')
+                        choices=['CE', 'Dice'], help='Choix de la loss (défaut: Unet)')
     parser.add_argument('--loss-weights', nargs='+', type=float, default=None, action='store',
                         help='Liste de 4 poids (défaut: None)')
     parser.add_argument('--model', type=str, default='Unet',

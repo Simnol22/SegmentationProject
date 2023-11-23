@@ -36,10 +36,10 @@ def augment_data(input_path, output_path, img_folder='Img', gt_folder='GT', rota
             image_path = os.path.join(input_folder_path, img_folder, file)
             image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
 
-            print(f"********Chargement de l'image {image_path}")
+            # print(f"********Chargement de l'image {image_path}")
 
             if image is None:
-                print(f"********Erreur de chargement de l'image : {image_path}")
+            #     print(f"********Erreur de chargement de l'image : {image_path}")
                 break
 
             # Charger le masque (label) si présent
@@ -53,18 +53,24 @@ def augment_data(input_path, output_path, img_folder='Img', gt_folder='GT', rota
             os.makedirs(os.path.join(output_folder_path, img_folder), exist_ok=True)
             os.makedirs(os.path.join(output_folder_path, gt_folder), exist_ok=True)
             cv2.imwrite(os.path.join(output_folder_path, img_folder, f'{file[:-4]}_augmented.png'), augmented_image)
+            cv2.imwrite(os.path.join(output_folder_path, img_folder, f'{file[:-4]}.png'), image)
             if augmented_mask is not None:
                 cv2.imwrite(os.path.join(output_folder_path, gt_folder, f'{file[:-4]}_augmented.png'), augmented_mask)
+                cv2.imwrite(os.path.join(output_folder_path, gt_folder, f'{file[:-4]}.png'), mask)
 
     
 def apply_augmentation(image, mask, rotation_range, translation_range, noise_level):
     # Rotation, translation, et bruit aléatoires
-    apply_rotation = np.random.choice([True, False])
-    apply_translation = np.random.choice([True, False])
-    apply_noise = np.random.choice([True, False])
-    print(f'rotation = {apply_rotation}')
-    print(f'translation = {apply_translation}')
-    print(f'noise = {apply_noise}')
+    apply_rotation = False
+    apply_translation = False
+    apply_noise = False
+    while apply_rotation or apply_translation or apply_noise is False:
+        apply_rotation = np.random.choice([True, False])
+        apply_translation = np.random.choice([True, False])
+        apply_noise = np.random.choice([True, False])
+    # print(f'rotation = {apply_rotation}')
+    # print(f'translation = {apply_translation}')
+    # print(f'noise = {apply_noise}')
 
 
     # Rotation aléatoire
