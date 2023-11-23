@@ -4,7 +4,7 @@ import numpy as np
 from skimage import exposure
 from skimage.util import random_noise
 
-def augment_data(input_path, output_path, img_folder='Img', gt_folder='GT', rotation_range=20, translation_range=(20, 20), noise_level=0.05):
+def augment_data(input_path, output_path, img_folder='Img', gt_folder='GT', rotation_range=20, translation_range=(20, 20), noise_level=0.01):
     """
     Augmente les données dans input_path et les sauvegarde dans output_path.
 
@@ -62,40 +62,41 @@ def apply_augmentation(image, mask, rotation_range, translation_range, noise_lev
     apply_rotation = np.random.choice([True, False])
     apply_translation = np.random.choice([True, False])
     apply_noise = np.random.choice([True, False])
+    print(f'rotation = {apply_rotation}')
+    print(f'translation = {apply_translation}')
+    print(f'noise = {apply_noise}')
+
 
     # Rotation aléatoire
     if apply_rotation:
         angle = np.random.uniform(-rotation_range, rotation_range)
-        image = exposure.rescale_intensity(
-            cv2.warpAffine(image, cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), angle, 1), (image.shape[1], image.shape[0])),
-            out_range=(0, 255) # Normaliser les valeurs de pixel entre 0 et 255
-        )
+        image = cv2.warpAffine(image, cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), angle, 1), (image.shape[1], image.shape[0]))
+
         if mask is not None:
-            mask = exposure.rescale_intensity(
-                cv2.warpAffine(mask, cv2.getRotationMatrix2D((mask.shape[1] / 2, mask.shape[0] / 2), angle, 1), (mask.shape[1], mask.shape[0])),
-                out_range=(0, 255) # Normaliser les valeurs de pixel entre 0 et 255
-            )
+            mask = cv2.warpAffine(mask, cv2.getRotationMatrix2D((mask.shape[1] / 2, mask.shape[0] / 2), angle, 1), (mask.shape[1], mask.shape[0]))
 
     # Translation aléatoire
     if apply_translation:
         tx = np.random.uniform(-translation_range[0], translation_range[0])
         ty = np.random.uniform(-translation_range[1], translation_range[1])
-        image = exposure.rescale_intensity(
-            cv2.warpAffine(image, np.float32([[1, 0, tx], [0, 1, ty]]), (image.shape[1], image.shape[0])),
-            out_range=(0, 255) # Normaliser les valeurs de pixel entre 0 et 255
-        )
+        image = cv2.warpAffine(image, np.float32([[1, 0, tx], [0, 1, ty]]), (image.shape[1], image.shape[0]))
         if mask is not None:
-            mask = exposure.rescale_intensity(
-                cv2.warpAffine(mask, np.float32([[1, 0, tx], [0, 1, ty]]), (mask.shape[1], mask.shape[0])),
-                out_range=(0, 255) # Normaliser les valeurs de pixel entre 0 et 255
-            )
+            mask = cv2.warpAffine(mask, np.float32([[1, 0, tx], [0, 1, ty]]), (mask.shape[1], mask.shape[0]))
 
     # Ajout de bruit
     if apply_noise:
-        image = random_noise(image, mode='s&p', amount=noise_level)
+        # Ajout de bruit salt-and-pepper avec scikit-image
+        noise = random_noise(image, mode='s&p', amount=noise_level)
+        
+        # Ajuster l'échelle du bruit pour être dans la plage [0, 255]
+        scaled_noise = (noise - np.min(noise)) / (np.max(noise) - np.min(noise)) * 255.0
+
+        # Ajouter le bruit à l'image
+        image = np.clip(image + scaled_noise, image.min(), image.max())
+
 
     #Si le masque est fourni, on le retourne avec les mêmes transformations (hormis le bruit) sinon on retourne None
-    return np.uint8(image), np.uint8(mask) if mask is not None else None
+    return image, mask if mask is not None else None
     
 
 
