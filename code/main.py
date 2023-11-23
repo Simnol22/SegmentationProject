@@ -6,7 +6,6 @@ from utils import *
 from UNet_Base import *
 from torchmetrics import ConfusionMatrix
 from data_augmentation import augment_data
-import losses
 
 # from torch.utils.data import DataLoader
 # from torchvision import transforms
