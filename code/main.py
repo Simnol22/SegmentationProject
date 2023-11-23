@@ -58,6 +58,8 @@ class MyModel(object):
                     self.loss = nn.CrossEntropyLoss(weight=w)
             case 'Dice':
                 self.loss = losses.DiceLoss()
+            case 'KLDiv':
+                self.loss = nn.KLDivLoss()
 
         # Optimizer
         match self.args.optimizer:
