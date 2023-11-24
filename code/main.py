@@ -4,7 +4,6 @@ from progressBar import printProgressBar
 from medicalDataLoader import MyDataloader
 from utils import *
 from UNet_Base import *
-from torchmetrics import ConfusionMatrix
 from data_augmentation import augment_data
 import losses
 
@@ -15,7 +14,6 @@ import losses
 # import pdb
 import matplotlib.pyplot as plt
 # from sklearn.metrics import accuracy_score 
-# from sklearn.metrics import confusion_matrix
 
 
 
@@ -112,7 +110,7 @@ class MyModel(object):
         self.model.train()
         loss_epoch = []
         mean_acc = np.array([0,0,0,0]).astype(float)
-        mean_dice = 0
+        mean_dice = np.array([0,0,0,0]).astype(float)
         # DSCEpoch_w = []
         num_batches = len(self.train_loader)
         
@@ -132,7 +130,10 @@ class MyModel(object):
 
             # COMPUTE THE LOSS
             loss_value = self.loss(pred, labels)
-            dice = self.dice(pred[:,3], labels)
+            dice = [self.dice(pred[:,0], labels),
+                    self.dice(pred[:,1], labels),
+                    self.dice(pred[:,2], labels),
+                    self.dice(pred[:,3], labels)]
 
             # DO THE STEPS FOR BACKPROP (two things to be done in pytorch)
             loss_value.backward()
@@ -146,8 +147,8 @@ class MyModel(object):
             printProgressBar(j + 1, num_batches,
                              prefix="[Training] Epoch: {} ".format(epoch),
                              length=15,
-                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}"
-                             .format(loss_value.cpu(),accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice))
+                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: [{:.4f},{:.4f},{:.4f},{:.4f}]"
+                             .format(loss_value.cpu(),accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice[0],dice[1],dice[2],dice[3]))
 
         mean_dice = mean_dice / num_batches
         mean_acc = mean_acc / num_batches
@@ -158,8 +159,8 @@ class MyModel(object):
 
         self.loss_training.append(loss_epoch)
         printProgressBar(num_batches, num_batches,
-                             done="[Training] Epoch: {}, LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}"
-                             .format(epoch,loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3],mean_dice))
+                             done="[Training] Epoch: {}, LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: [{:.4f},{:.4f},{:.4f},{:.4f}]"
+                             .format(epoch,loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3],mean_dice[0],mean_dice[1],mean_dice[2],mean_dice[3]))
 
 
     def validation(self, epoch):
@@ -184,8 +185,8 @@ class MyModel(object):
             printProgressBar(j + 1, num_batches,
                              prefix="[Validation] Epoch: {} ".format(epoch),
                              length=15,
-                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}"
-                             .format(loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice))
+                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: [{:.4f},{:.4f},{:.4f},{:.4f}]"
+                             .format(loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice[0],dice[1],dice[2],dice[3]))
         
         mean_dice = mean_dice / num_batches
         mean_acc = mean_acc / num_batches
@@ -196,8 +197,8 @@ class MyModel(object):
             self.save(loss_epoch, epoch)
         
         printProgressBar(num_batches, num_batches,
-                             done="[Validation] Epoch: {}, LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}"
-                             .format(epoch,loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3],mean_dice))
+                             done="[Validation] Epoch: {}, LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: [{:.4f},{:.4f},{:.4f},{:.4f}]"
+                             .format(epoch,loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3],mean_dice[0],mean_dice[1],mean_dice[2],mean_dice[3]))
 
 
     def inference(self):

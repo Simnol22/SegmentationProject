@@ -15,6 +15,7 @@ import statistics
 from PIL import Image
 from medpy.metric.binary import dc, hd, asd, assd
 import scipy.spatial
+from torchmetrics import ConfusionMatrix
 
 # from scipy.spatial.distance import directed_hausdorff
 
