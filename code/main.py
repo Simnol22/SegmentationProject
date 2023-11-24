@@ -47,7 +47,8 @@ class MyModel(object):
                 self.model = UNet(self.num_classes)
             case 'nnUnet':
                 self.model = nnUnet(self.num_classes)
-
+        print("Nombre de paramètres: {0:,}".format(sum(p.numel() for p in self.model.parameters() if p.requires_grad)))
+        
         # Loss
         self.softMax = nn.Softmax()
         self.dice = losses.DiceLoss()

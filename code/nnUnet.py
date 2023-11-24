@@ -3,7 +3,7 @@ from nnunet.network_architecture.generic_UNet import Generic_UNet
 
 class nnUnet(Generic_UNet):
     def __init__(self, num_classes):
-        super().__init__(input_channels=1, base_num_features=64, num_classes=num_classes,num_pool=1)
+        super().__init__(input_channels=1, base_num_features=64, num_classes=num_classes,num_pool=2)
 
     def parameters(self):
         return super().parameters()
