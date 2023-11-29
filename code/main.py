@@ -125,8 +125,8 @@ class MyModel(object):
     def training(self, epoch):
         self.model.train()
         loss_epoch = []
-        mean_acc = np.array([0,0,0,0]).astype(float)
-        mean_dice = np.array([0,0,0,0]).astype(float)
+        mean_acc = np.zeros(4).astype(float)
+        mean_dice = np.zeros(4).astype(float)
         num_batches = len(self.train_loader)
         
         ## FOR EACH BATCH
@@ -139,6 +139,13 @@ class MyModel(object):
             images, targets, _ = data
             labels = to_var(getTargetSegmentation(targets))
             images = to_var(images)
+
+            #J'aimerais afficher ce que vaut la distance de Hausdorff avec la fonction que j'ai faite mais je
+            # ne sais pas comment faire
+            #Eval_HD = np.zeros(4)
+            #for i in range(0, 4):
+                #Eval_HD[i] = losses.HausdorffLoss(pred[0,i,:,:], labels[0,i,:,:])
+            #print("Distance d'Hausdorff : ", Eval_HD.mean())
 
             #-- The CNN makes its predictions (forward pass)
             pred = self.softMax(self.model.forward(images))

@@ -9,10 +9,10 @@ class dice_loss(nn.Module):
         self.weight = weight
     def forward(self, pred, target, smooth=1.):
         dice = DiceLoss()
-        dice_0 = dice(pred[:,0], target, smooth) * self.weight[0]
-        dice_1 = dice(pred[:,1], target, smooth) * self.weight[1]
-        dice_2 = dice(pred[:,2], target, smooth) * self.weight[2]
-        dice_3 = dice(pred[:,3], target, smooth) * self.weight[3]
+        dice_0 = dice(pred[:,0,...], target, smooth) * self.weight[0]
+        dice_1 = dice(pred[:,1,...], target, smooth) * self.weight[1]
+        dice_2 = dice(pred[:,2,...], target, smooth) * self.weight[2]
+        dice_3 = dice(pred[:,3,...], target, smooth) * self.weight[3]
         return dice_0 + dice_1 + dice_2 + dice_3
 
 class DiceLoss(nn.Module):
@@ -226,3 +226,32 @@ class ComboLoss(nn.Module):
         combo = (CE_RATIO * weighted_ce) - ((1 - CE_RATIO) * dice)
         
         return combo
+    
+
+    
+def HausdorffLoss(inputs, targets):
+        """
+        Args:
+            inputs: prediction of the neural network.
+            targets: ground truth labels.
+        """
+        #flatten labels and predictions
+        inputs = inputs.view(-1)
+        targets = targets.view(-1)
+
+        # Calculate true positive (intersection) and false positive
+        intersection = (inputs * targets).sum()
+        false_positive = inputs.sum() - intersection
+
+        # Calculate Hausdorff distance
+        epsilon = 1e-6
+        hausdorff_dist = (intersection + false_positive) / (targets.sum() + epsilon)
+
+        # The loss is the complement of the Hausdorff distance
+        #loss = 1.0 - hausdorff_dist.mean()
+
+        return 1.0 - hausdorff_dist.mean()
+    
+
+
+
