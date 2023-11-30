@@ -14,7 +14,8 @@ import losses
 # import pdb
 import matplotlib.pyplot as plt
 # from sklearn.metrics import accuracy_score 
-
+import wandb
+from wandb.keras import WandbMetricsLogger, WandbModelCheckpoint
 
 
 class MyModel(object):
@@ -126,8 +127,8 @@ class MyModel(object):
     def training(self, epoch):
         self.model.train()
         loss_epoch = []
-        mean_acc = np.array([0,0,0,0]).astype(float)
-        mean_dice = np.array([0,0,0,0]).astype(float)
+        mean_acc = np.zeros(4).astype(float)
+        mean_dice = np.zeros(4).astype(float)
         num_batches = len(self.train_loader)
         
         ## FOR EACH BATCH
@@ -158,13 +159,22 @@ class MyModel(object):
             mean_acc += accuracy
             mean_dice += dice.cpu().data.numpy()
 
+            Eval_HD = np.zeros(4)
+            for i in range(0, 4):
+                Eval_HD[i] = losses.HausdorffLoss(pred[0,i,:,:], labels[0,i,:,:])
+
+            try:
+                wandb.log({"loss": loss_value,"accuracy0": accuracy[0],"accuracy1": accuracy[1],"accuracy2": accuracy[2],"accuracy3": accuracy[3],"dice":dice,"epoch":epoch})
+            except:
+                pass
+
             # THIS IS JUST TO VISUALIZE THE TRAINING 
             loss_epoch.append(loss_value.cpu().data.numpy())
             printProgressBar(j + 1, num_batches,
                              prefix="[Training] Epoch: {} ".format(epoch),
                              length=15,
-                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}"
-                             .format(loss_value.cpu(),accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice))
+                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}, Hausdorff = {}"
+                             .format(loss_value.cpu(),accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice,Eval_HD.mean()))
 
         mean_dice = mean_dice / num_batches
         mean_acc = mean_acc / num_batches
@@ -180,8 +190,8 @@ class MyModel(object):
     def validation(self, epoch):
         self.model.eval()
         loss_epoch = []
-        mean_dice = np.array([0,0,0,0]).astype(float)
-        mean_acc = np.array([0,0,0,0]).astype(float)
+        mean_acc = np.zeros(4).astype(float)
+        mean_dice = np.zeros(4).astype(float)
         num_batches = len(self.val_loader)
 
         for j, data in enumerate(self.val_loader):
@@ -196,12 +206,22 @@ class MyModel(object):
             accuracy = evaluation(pred, labels, self.num_classes)
             mean_acc += accuracy
             mean_dice += dice.cpu().data.numpy()
+
+            Eval_HD = np.zeros(4)
+            for i in range(0, 4):
+                Eval_HD[i] = losses.HausdorffLoss(pred[0,i,:,:], labels[0,i,:,:])
+                
+            try:
+                wandb.log({"val_loss": loss_value,"val_accuracy0": accuracy[0],"val_accuracy1": accuracy[1],"val_accuracy2": accuracy[2],"val_accuracy3": accuracy[3],"val_dice": dice,"epoch":epoch})
+            except:
+                pass
+
             loss_epoch.append(loss_value.cpu().data.numpy())
             printProgressBar(j + 1, num_batches,
                              prefix="[Validation] Epoch: {} ".format(epoch),
                              length=15,
-                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}"
-                             .format(loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice))
+                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}, Hausdorff = {}"
+                             .format(loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice, ))
         
         mean_dice = mean_dice / num_batches
         mean_acc = mean_acc / num_batches
@@ -354,6 +374,20 @@ def main():
     print("Cuda disponible :",torch.cuda.is_available())
 
     model = MyModel(args)
+    print("ARGS : ", args)
+    # Setup Wandb
+    run = wandb.init(
+        # Set the project where this run will be logged
+        project="projet_segmentation",
+        name="UnetBase",
+        resume="allow", # See https://docs.wandb.ai/guides/runs/resuming
+        # Track hyperparameters and run metadata
+        config={
+            "learning_rate": args.lr,
+            "epochs": args.epochs,
+            "batch_size": args.batch_size
+        }
+    )
 
     if args.inference is True:
         print('Inférence:')
@@ -365,6 +399,10 @@ def main():
             model.training(epoch)
             model.validation(epoch)
 
+    try:
+        wandb.finish()
+    except:
+        pass
     model.display_losses()
 
 

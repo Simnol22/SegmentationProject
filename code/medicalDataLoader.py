@@ -159,7 +159,19 @@ class MyDataloader(object):
                                 num_workers=self.args.num_workers,
                                 shuffle=True)
         
-        return train_loader, val_loader 
+        test_set = MedicalImageDataset('test',
+                                    self.args.root_dir,
+                                    transform=self.transform,
+                                    mask_transform=self.mask_transform,
+                                    equalize=True)
+        
+        test_loader = DataLoader(test_set,
+                                batch_size=self.args.val_batch_size,
+                                worker_init_fn=np.random.seed(0),
+                                num_workers=self.args.num_workers,
+                                shuffle=True)
+        
+        return train_loader, val_loader, test_loader 
     
     def create_unlabelled_dataloaders(self):
         #TODO
