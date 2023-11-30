@@ -6,7 +6,9 @@ from utils import *
 from UNet_Base import *
 from data_augmentation import augment_data
 import losses
-
+# Experiment tracking
+import wandb
+from wandb.keras import WandbMetricsLogger, WandbModelCheckpoint
 # from torch.utils.data import DataLoader
 # from torchvision import transforms
 # from torchgeometry.losses import tversky
@@ -128,7 +130,7 @@ class MyModel(object):
         mean_acc = np.zeros(4).astype(float)
         mean_dice = np.zeros(4).astype(float)
         num_batches = len(self.train_loader)
-        
+
         ## FOR EACH BATCH
         for j, data in enumerate(self.train_loader):
             ### Set to zero all the gradients
@@ -153,7 +155,7 @@ class MyModel(object):
             # COMPUTE THE LOSS
             loss_value = self.loss(pred, labels)
             dice = self.dice(pred, labels)
-            loss_value = loss_value + .5*dice
+            #loss_value = loss_value + .5*dice
 
             # DO THE STEPS FOR BACKPROP (two things to be done in pytorch)
             loss_value.backward()
@@ -165,7 +167,11 @@ class MyModel(object):
 
             # THIS IS JUST TO VISUALIZE THE TRAINING 
             loss_epoch.append(loss_value.cpu().data.numpy())
-            printProgressBar(j + 1, num_batches,
+            try:
+                wandb.log({"loss": loss_value,"accuracy0": accuracy[0],"accuracy1": accuracy[1],"accuracy2": accuracy[2],"accuracy3": accuracy[3],"dice":dice,"epoch":epoch})
+            except:
+                pass
+            printProgressBar(j + 1, num_batches, 
                              prefix="[Training] Epoch: {} ".format(epoch),
                              length=15,
                              suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}"
@@ -175,7 +181,6 @@ class MyModel(object):
         mean_acc = mean_acc / num_batches
         mean_acc[np.isnan(mean_acc)] = 0
         loss_epoch = np.asarray(loss_epoch).mean()
-
         self.loss_training.append(loss_epoch)
         printProgressBar(num_batches, num_batches,
                              done="[Training] Epoch: {}, LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}"
@@ -196,11 +201,15 @@ class MyModel(object):
             pred = self.softMax(self.model.forward(images.float()))
             loss_value = self.loss(pred, labels)
             dice = self.dice(pred, targets)
-            loss_value = loss_value + .5*dice
+            #loss_value = loss_value + .5*dice
             accuracy = evaluation(pred, labels, self.num_classes)
             mean_acc += accuracy
             mean_dice += dice.cpu().data.numpy()
             loss_epoch.append(loss_value.cpu().data.numpy())
+            try:
+                wandb.log({"val_loss": loss_value,"val_accuracy0": accuracy[0],"val_accuracy1": accuracy[1],"val_accuracy2": accuracy[2],"val_accuracy3": accuracy[3],"val_dice": dice,"epoch":epoch})
+            except:
+                pass
             printProgressBar(j + 1, num_batches,
                              prefix="[Validation] Epoch: {} ".format(epoch),
                              length=15,
@@ -218,11 +227,11 @@ class MyModel(object):
         if loss_epoch < self.best_loss:
             is_saved = True
             self.save(epoch)
-        
+
         printProgressBar(num_batches, num_batches,
                              done="[Validation] Epoch: {}, LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}, Save: {}"
                              .format(epoch,loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3],mean_dice.mean(),is_saved))
-
+        
 
     def inference(self):
         self.model.eval()
@@ -358,6 +367,20 @@ def main():
     print("Cuda disponible :",torch.cuda.is_available())
 
     model = MyModel(args)
+    print("ARGS : ", args)
+    # Setup Wandb
+    run = wandb.init(
+    # Set the project where this run will be logged
+    project="projet_segmentation",
+    name="UnetBase",
+    resume="allow", # See https://docs.wandb.ai/guides/runs/resuming
+    # Track hyperparameters and run metadata
+    config={
+        "learning_rate": args.lr,
+        "epochs": args.epochs,
+        "batch_size": args.batch_size
+    }
+    )
 
     if args.inference is True:
         print('Inférence:')
@@ -368,6 +391,10 @@ def main():
         for epoch in range(model.args.start_epoch, model.args.epochs):
             model.training(epoch)
             model.validation(epoch)
+        try:
+            wandb.finish()
+        except:
+            pass
 
     model.display_losses()
 
