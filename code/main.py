@@ -14,6 +14,9 @@ from wandb.keras import WandbMetricsLogger, WandbModelCheckpoint
 # from torchgeometry.losses import tversky
 # import random
 # import pdb
+from UNet_Boosted import *
+from UNet_Higher import *
+import segmentation_models_pytorch as smp
 import matplotlib.pyplot as plt
 # from sklearn.metrics import accuracy_score 
 
@@ -40,13 +43,24 @@ class MyModel(object):
         self.losses_directory = 'Results/Statistics/' + self.args.model + '/' + self.args.name
         self.model_directory = 'models/' + self.args.model + '/' + self.args.name
 
+        aux_params=dict( #Params for pretrained models
+            pooling='avg',             # one of 'avg', 'max'
+            dropout=0.5,               # dropout ratio, default is None
+            activation='sigmoid',      # activation function, default is None
+            classes=4              # define number of output labels
+        )
         # Model
         print("Nom du modèle : {}".format(self.args.model))
         match self.args.model:
             case 'Unet':
                 self.model = UNet(self.num_classes)
-            case 'nnUnet':
-                self.model = ...#nnUNet(self.num_classes)
+            case 'UnetBoosted':
+                self.model = UNetBoosted(self.num_classes)
+            case 'UnetHigher':
+                self.model = UNetHigher(self.num_classes)
+            case 'pretrained':
+                self.model = smp.UnetPlusPlus('resnet50', classes=4, aux_params=aux_params,in_channels=1)   
+        print("Nombre de paramètres: {0:,}".format(sum(p.numel() for p in self.model.parameters() if p.requires_grad)))
 
         # Loss
         self.softMax = nn.Softmax()
@@ -324,7 +338,7 @@ def main():
     parser.add_argument('--loss-weights', nargs='+', type=float, default=None, action='store',
                         help='Liste de 4 poids (défaut: None)')
     parser.add_argument('--model', type=str, default='Unet',
-                        choices=['Unet', 'nnUnet'],
+                        choices=['Unet', 'UnetBoosted', 'UnetHigher', 'pretrained'],
                         help='Choix du modèle (défaut: Unet)')
     parser.add_argument('--num-workers', type=int, default=0,
                         help='Nombre de coeurs pour les dataloaders (défaut: 0)')
@@ -367,7 +381,7 @@ def main():
     print("Cuda disponible :",torch.cuda.is_available())
 
     model = MyModel(args)
-    print("ARGS : ", args)
+
     # Setup Wandb
     run = wandb.init(
     # Set the project where this run will be logged
