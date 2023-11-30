@@ -229,3 +229,27 @@ class ComboLoss(nn.Module):
         combo = (CE_RATIO * weighted_ce) - ((1 - CE_RATIO) * dice)
         
         return combo
+    
+
+    def HausdorffLoss(inputs, targets):
+        """
+        Args:
+            inputs: prediction of the neural network.
+            targets: ground truth labels.
+        """
+        #flatten labels and predictions
+        inputs = inputs.view(-1)
+        targets = targets.view(-1)
+
+        # Calculate true positive (intersection) and false positive
+        intersection = (inputs * targets).sum()
+        false_positive = inputs.sum() - intersection
+
+        # Calculate Hausdorff distance
+        epsilon = 1e-6
+        hausdorff_dist = (intersection + false_positive) / (targets.sum() + epsilon)
+
+        # The loss is the complement of the Hausdorff distance
+        #loss = 1.0 - hausdorff_dist.mean()
+
+        return 1.0 - hausdorff_dist.mean()
