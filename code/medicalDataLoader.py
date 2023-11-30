@@ -122,7 +122,8 @@ class MyDataloader(object):
     def __init__(self,args):
         self.args = args
         self.transform = transforms.Compose([
-            transforms.ToTensor()
+            transforms.ToTensor(),
+            transforms.Normalize((0.5), (0.20))
         ])
     
         self.mask_transform = transforms.Compose([

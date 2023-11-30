@@ -9,10 +9,10 @@ class dice_loss(nn.Module):
         self.weight = weight
     def forward(self, pred, target, smooth=1.):
         dice = DiceLoss()
-        dice_0 = dice(pred[:,0,...], target, smooth) * self.weight[0]
-        dice_1 = dice(pred[:,1,...], target, smooth) * self.weight[1]
-        dice_2 = dice(pred[:,2,...], target, smooth) * self.weight[2]
-        dice_3 = dice(pred[:,3,...], target, smooth) * self.weight[3]
+        dice_0 = dice(pred[:,0], target, smooth) * self.weight[0]
+        dice_1 = dice(pred[:,1], target, smooth) * self.weight[1]
+        dice_2 = dice(pred[:,2], target, smooth) * self.weight[2]
+        dice_3 = dice(pred[:,3], target, smooth) * self.weight[3]
         return dice_0 + dice_1 + dice_2 + dice_3
 
 class DiceLoss(nn.Module):
@@ -35,6 +35,7 @@ class MyCenterLoss(nn.Module):
         super(MyCenterLoss, self).__init__()
     
     def forward(self, preds, targets):
+        seuil = 20
         loss = torch.tensor(0)
         for b, target in enumerate(targets): # centre : [num_ligne, num_col]
             x = torch.arange(256).expand(256, 256)
@@ -46,17 +47,19 @@ class MyCenterLoss(nn.Module):
             x_mask_3 = torch.mul(mask_3, x).float()
             y_mask_3 = torch.mul(mask_3, y).float()
             if x_mask_2.count_nonzero() == 0 or x_mask_3.count_nonzero() == 0:
-                return torch.tensor(0)
+                dist_mat_2 = torch.mean(preds[b, 2])
+                dist_mat_3 = torch.mean(preds[b, 3])
             else:
                 centre_2 = torch.tensor((x_mask_2.sum() / x_mask_2.count_nonzero(),
                                          y_mask_2.sum() / y_mask_2.count_nonzero())).type(torch.IntTensor)
                 centre_3 = torch.tensor((x_mask_3.sum() / x_mask_3.count_nonzero(),
                                          y_mask_3.sum() / y_mask_3.count_nonzero())).type(torch.IntTensor)
-
-            dist_mat_2 = torch.sqrt(torch.sub(x, centre_2[0]).pow(2) + torch.sub(y, centre_2[1]).pow(2)).mul(preds[b, 2]).mean()
-            dist_mat_3 = torch.sqrt(torch.sub(x, centre_3[0]).pow(2) + torch.sub(y, centre_3[1]).pow(2)).mul(preds[b, 3]).mean()
+                dist_mat_2 = torch.mean(torch.sqrt(torch.sub(x, centre_2[0]).pow(2) + torch.sub(y, centre_2[1]).pow(2)).mul(preds[b, 2]) - seuil)
+                dist_mat_3 = torch.mean(torch.sqrt(torch.sub(x, centre_3[0]).pow(2) + torch.sub(y, centre_3[1]).pow(2)).mul(preds[b, 3]) - seuil)
             loss = loss + dist_mat_2 + dist_mat_3
-        return loss / 100
+            if loss < 0:
+                loss = torch.tensor(0)
+        return loss / 256
 
 
 
@@ -226,32 +229,3 @@ class ComboLoss(nn.Module):
         combo = (CE_RATIO * weighted_ce) - ((1 - CE_RATIO) * dice)
         
         return combo
-    
-
-    
-def HausdorffLoss(inputs, targets):
-        """
-        Args:
-            inputs: prediction of the neural network.
-            targets: ground truth labels.
-        """
-        #flatten labels and predictions
-        inputs = inputs.view(-1)
-        targets = targets.view(-1)
-
-        # Calculate true positive (intersection) and false positive
-        intersection = (inputs * targets).sum()
-        false_positive = inputs.sum() - intersection
-
-        # Calculate Hausdorff distance
-        epsilon = 1e-6
-        hausdorff_dist = (intersection + false_positive) / (targets.sum() + epsilon)
-
-        # The loss is the complement of the Hausdorff distance
-        #loss = 1.0 - hausdorff_dist.mean()
-
-        return 1.0 - hausdorff_dist.mean()
-    
-
-
-

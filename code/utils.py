@@ -28,11 +28,19 @@ def evaluation(pred, labels, num_classes):
                          confmat[1,1]/confmat[:,1].sum(),
                          confmat[2,2]/confmat[:,2].sum(),
                          confmat[3,3]/confmat[:,3].sum(),]).astype(float)
+    res = np.array([confmat[0,0]/confmat[0,:].sum(),
+                    confmat[1,1]/confmat[1,:].sum(),
+                    confmat[2,2]/confmat[2,:].sum(),
+                    confmat[3,3]/confmat[3,:].sum(),]).astype(float)
     accuracy[accuracy<0] = 0
-    accuracy[accuracy>1] = 0
+    accuracy[accuracy>1] = 1
     accuracy[accuracy == float('nan')] = 0
     accuracy[np.isnan(accuracy)] = 0
-    return accuracy
+    res[res<0] = 0
+    res[res>1] = 1
+    res[accuracy == float('nan')] = 0
+    res[np.isnan(res)] = 0
+    return accuracy#, res
 
 
 def args_to_command(args):

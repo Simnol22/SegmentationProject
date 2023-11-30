@@ -5,9 +5,10 @@ from progressBar import printProgressBar
 #import JoseLoader
 import medicalDataLoader
 import argparse
-from utils import *
+# from utils import *
+from utils_2 import *
 
-from UNet_Base import *
+from UNet_Base import UNet
 import random
 import torchvision.transforms.functional as TF
 from random import random, randint
@@ -56,8 +57,8 @@ def runTesting(args):
 
     # https://sparrow.dev/pytorch-normalize/
     transform = transforms.Compose([
-        transforms.ToTensor()
-        #transforms.Normalize((0.5), (0.20))
+        transforms.ToTensor(),
+        transforms.Normalize((0.5), (0.20))
     ])
 
     mask_transform = transforms.Compose([
@@ -82,7 +83,8 @@ def runTesting(args):
     net = UNet(num_classes)
 
     # Load
-    net.load_state_dict(torch.load('./models/'+args.modelName))
+    checkpoints = torch.load('./models/'+args.modelName)
+    net.load_state_dict(checkpoints['model_state_dict'])
     net.eval()
 
     if torch.cuda.is_available():
