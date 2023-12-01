@@ -4,6 +4,9 @@ from progressBar import printProgressBar
 from medicalDataLoader import MyDataloader
 from utils import *
 from UNet_Base import *
+from UNet_Boosted import *
+from UNet_Higher import *
+import segmentation_models_pytorch as smp
 from data_augmentation import augment_data
 import losses
 
@@ -33,19 +36,31 @@ class MyModel(object):
             self.args.root_dir = self.args.augment_dir
 
         myDataLoader = MyDataloader(self.args)
-        self.train_loader, self.val_loader = myDataLoader.create_labelled_dataloaders()
+        self.train_loader, self.val_loader, self.test_loader = myDataLoader.create_labelled_dataloaders()
         self.unlabelled_loader = myDataLoader.create_unlabelled_dataloaders()
         self.num_classes = 4
         self.losses_directory = 'Results/Statistics/' + self.args.model + '/' + self.args.name
         self.model_directory = 'models/' + self.args.model + '/' + self.args.name
+        
+        aux_params=dict( #Params for pretrained models
+            pooling='avg',             # one of 'avg', 'max'
+            dropout=0.5,               # dropout ratio, default is None
+            activation='sigmoid',      # activation function, default is None
+            classes=4              # define number of output labels
+        )
 
         # Model
         print("Nom du modèle : {}".format(self.args.model))
         match self.args.model:
             case 'Unet':
                 self.model = UNet(self.num_classes)
-            case 'nnUnet':
-                self.model = ...#nnUNet(self.num_classes)
+            case 'UnetBoosted':
+                self.model = UNetBoosted(self.num_classes)
+            case 'UnetHigher':
+                self.model = UNetHigher(self.num_classes)
+            case 'pretrained':
+                self.model = smp.UnetPlusPlus('resnet50', classes=4, aux_params=aux_params,in_channels=1)   
+        print("Nombre de paramètres: {0:,}".format(sum(p.numel() for p in self.model.parameters() if p.requires_grad)))
 
         # Loss
         self.softMax = nn.Softmax()
@@ -159,9 +174,9 @@ class MyModel(object):
             mean_acc += accuracy
             mean_dice += dice.cpu().data.numpy()
 
-            Eval_HD = np.zeros(4)
-            for i in range(0, 4):
-                Eval_HD[i] = losses.HausdorffLoss(pred[0,i,:,:], labels[0,i,:,:])
+            #Eval_HD = np.zeros(4)
+            #for i in range(0, 4):
+            #    Eval_HD[i] = losses.HausdorffLoss(pred[0,i,:,:], labels[0,i,:,:])
 
             try:
                 wandb.log({"loss": loss_value,"accuracy0": accuracy[0],"accuracy1": accuracy[1],"accuracy2": accuracy[2],"accuracy3": accuracy[3],"dice":dice,"epoch":epoch})
@@ -173,8 +188,8 @@ class MyModel(object):
             printProgressBar(j + 1, num_batches,
                              prefix="[Training] Epoch: {} ".format(epoch),
                              length=15,
-                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}, Hausdorff = {}"
-                             .format(loss_value.cpu(),accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice,Eval_HD.mean()))
+                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}"    
+                             .format(loss_value.cpu(),accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice))
 
         mean_dice = mean_dice / num_batches
         mean_acc = mean_acc / num_batches
@@ -207,9 +222,9 @@ class MyModel(object):
             mean_acc += accuracy
             mean_dice += dice.cpu().data.numpy()
 
-            Eval_HD = np.zeros(4)
-            for i in range(0, 4):
-                Eval_HD[i] = losses.HausdorffLoss(pred[0,i,:,:], labels[0,i,:,:])
+            #Eval_HD = np.zeros(4)
+            #for i in range(0, 4):
+            #    Eval_HD[i] = losses.HausdorffLoss(pred[0,i,:,:], labels[0,i,:,:])
                 
             try:
                 wandb.log({"val_loss": loss_value,"val_accuracy0": accuracy[0],"val_accuracy1": accuracy[1],"val_accuracy2": accuracy[2],"val_accuracy3": accuracy[3],"val_dice": dice,"epoch":epoch})
@@ -220,8 +235,8 @@ class MyModel(object):
             printProgressBar(j + 1, num_batches,
                              prefix="[Validation] Epoch: {} ".format(epoch),
                              length=15,
-                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}, Hausdorff = {}"
-                             .format(loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice, ))
+                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}"
+                             .format(loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice))
         
         mean_dice = mean_dice / num_batches
         mean_acc = mean_acc / num_batches
@@ -229,7 +244,7 @@ class MyModel(object):
 
         loss_epoch = np.asarray(loss_epoch).mean()
         self.loss_validation.append(loss_epoch)
-
+        
         is_saved = False
         if loss_epoch < self.best_loss:
             is_saved = True
@@ -331,7 +346,7 @@ def main():
     parser.add_argument('--loss-weights', nargs='+', type=float, default=None, action='store',
                         help='Liste de 4 poids (défaut: None)')
     parser.add_argument('--model', type=str, default='Unet',
-                        choices=['Unet', 'nnUnet'],
+                        choices=['Unet', 'UnetBoosted', 'UnetHigher', 'pretrained'],
                         help='Choix du modèle (défaut: Unet)')
     parser.add_argument('--num-workers', type=int, default=0,
                         help='Nombre de coeurs pour les dataloaders (défaut: 0)')

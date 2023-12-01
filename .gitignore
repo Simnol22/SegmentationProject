@@ -4,6 +4,8 @@ Augment/
 *.py[cod]
 *$py.class
 wandb/
+resultsTest/
+code/Data/test/
 # C extensions
 *.so
 
