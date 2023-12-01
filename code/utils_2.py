@@ -57,8 +57,10 @@ from scipy import ndimage
 def inferenceTest(net, img_batch, modelName):
     total = len(img_batch)
     net.eval()
-
-    softMax = nn.Softmax().cuda()
+    if torch.cuda.is_available():
+        softMax = nn.Softmax().cuda()
+    else:
+        softMax = nn.Softmax()
 
     DSC_All_class1 = []
     DSC_All_class2 = []

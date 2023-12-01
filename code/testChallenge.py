@@ -9,7 +9,6 @@ import argparse
 from utils_2 import *
 
 from UNet_Base import UNet
-from UNet_Boosted import *
 import random
 import torchvision.transforms.functional as TF
 from random import random, randint
@@ -81,7 +80,7 @@ def runTesting(args):
     num_classes = 4
 
     # Create and load model
-    net = UNetBoosted(num_classes)
+    net = UNet(num_classes)
 
     # Load
     checkpoints = torch.load('./models/'+args.modelName)
