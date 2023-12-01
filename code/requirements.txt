@@ -1,0 +1,6 @@
+scikit-image
+medpy
+torchmetrics
+segmentation_models_pytorch
+wandb
+tensorflow

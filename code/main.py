@@ -78,7 +78,13 @@ class MyModel(object):
                     self.loss = losses.dice_loss()
             case 'KLDiv':
                 self.loss = nn.KLDivLoss()
-
+        
+        if self.args.cuda is True:
+            self.model.cuda()
+            self.softMax.cuda()
+            self.loss.cuda()
+            self.dice.cuda()
+    
         # Optimizer
         match self.args.optimizer:
             case 'SGD':
@@ -107,11 +113,6 @@ class MyModel(object):
                                                     lr=self.args.lr,
                                                     betas=[.9,.999],
                                                     weight_decay=0)
-
-        if self.args.cuda is True:
-            self.model.cuda()
-            self.softMax.cuda()
-            self.loss.cuda()
 
         if not self.args.load_weights is None:
             if self.args.cuda is True:
@@ -150,6 +151,8 @@ class MyModel(object):
 
             ## GET IMAGES, LABELS and IMG NAMES
             images, targets, _ = data
+            if torch.cuda.is_available():
+                images, targets = images.cuda(), targets.cuda()
             labels = to_var(getTargetSegmentation(targets))
             images = to_var(images)
 
@@ -207,6 +210,8 @@ class MyModel(object):
 
         for j, data in enumerate(self.val_loader):
             images, targets, _ = data
+            if torch.cuda.is_available():
+                images, targets = images.cuda(), targets.cuda()
             labels = getTargetSegmentation(to_var(targets))
             images = to_var(images)
             pred = self.model.forward(images.float())

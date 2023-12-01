@@ -22,8 +22,11 @@ from torchmetrics import ConfusionMatrix
 
 
 def evaluation(pred, labels, num_classes):
-    confmat = ConfusionMatrix(task="multiclass", num_classes=num_classes)
-    confmat = confmat(pred, labels).numpy()
+    if torch.cuda.is_available():
+        confmat = ConfusionMatrix(task="multiclass", num_classes=num_classes).to(torch.device("cuda:0" if torch.cuda.is_available() else "cpu"))
+    else:
+        confmat = ConfusionMatrix(task="multiclass", num_classes=num_classes)
+    confmat = confmat(pred, labels).cpu().numpy()
     accuracy = np.array([confmat[0,0]/confmat[:,0].sum(),
                          confmat[1,1]/confmat[:,1].sum(),
                          confmat[2,2]/confmat[:,2].sum(),
