@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 import wandb
 from wandb.keras import WandbMetricsLogger, WandbModelCheckpoint
 
+WANDB_TRACKING = False
 
 class MyModel(object):
     def __init__(self, args):
@@ -177,11 +178,11 @@ class MyModel(object):
             #Eval_HD = np.zeros(4)
             #for i in range(0, 4):
             #    Eval_HD[i] = losses.HausdorffLoss(pred[0,i,:,:], labels[0,i,:,:])
-
-            try:
-                wandb.log({"loss": loss_value,"accuracy0": accuracy[0],"accuracy1": accuracy[1],"accuracy2": accuracy[2],"accuracy3": accuracy[3],"dice":dice,"epoch":epoch})
-            except:
-                pass
+            if WANDB_TRACKING:
+                try:
+                    wandb.log({"loss": loss_value,"accuracy0": accuracy[0],"accuracy1": accuracy[1],"accuracy2": accuracy[2],"accuracy3": accuracy[3],"dice":dice,"epoch":epoch})
+                except:
+                    pass
 
             # THIS IS JUST TO VISUALIZE THE TRAINING 
             loss_epoch.append(loss_value.cpu().data.numpy())
@@ -225,11 +226,11 @@ class MyModel(object):
             #Eval_HD = np.zeros(4)
             #for i in range(0, 4):
             #    Eval_HD[i] = losses.HausdorffLoss(pred[0,i,:,:], labels[0,i,:,:])
-                
-            try:
-                wandb.log({"val_loss": loss_value,"val_accuracy0": accuracy[0],"val_accuracy1": accuracy[1],"val_accuracy2": accuracy[2],"val_accuracy3": accuracy[3],"val_dice": dice,"epoch":epoch})
-            except:
-                pass
+            if WANDB_TRACKING:
+                try:
+                    wandb.log({"val_loss": loss_value,"val_accuracy0": accuracy[0],"val_accuracy1": accuracy[1],"val_accuracy2": accuracy[2],"val_accuracy3": accuracy[3],"val_dice": dice,"epoch":epoch})
+                except:
+                    pass
 
             loss_epoch.append(loss_value.cpu().data.numpy())
             printProgressBar(j + 1, num_batches,
@@ -244,7 +245,7 @@ class MyModel(object):
 
         loss_epoch = np.asarray(loss_epoch).mean()
         self.loss_validation.append(loss_epoch)
-        
+
         is_saved = False
         if loss_epoch < self.best_loss:
             is_saved = True
@@ -381,6 +382,9 @@ def main():
     # Options d'évaluation
     parser.add_argument('--inference', action='store_true', default=False,
                         help='Réalise des prédictions et affiche les résultats')
+    # Options d'évaluation
+    parser.add_argument('--wandb', action='store_true', default=False,
+                        help='Activer ou non le trackeur wandb')
 
     args = parser.parse_args()
     save_args_to_sh(args)
@@ -388,21 +392,25 @@ def main():
     args.cuda = args.cuda and torch.cuda.is_available()
     print("Cuda disponible :",torch.cuda.is_available())
 
+    global WANDB_TRACKING
+    WANDB_TRACKING = args.wandb
+
     model = MyModel(args)
-    print("ARGS : ", args)
+
     # Setup Wandb
-    run = wandb.init(
-        # Set the project where this run will be logged
-        project="projet_segmentation",
-        name="UnetBase",
-        resume="allow", # See https://docs.wandb.ai/guides/runs/resuming
-        # Track hyperparameters and run metadata
-        config={
-            "learning_rate": args.lr,
-            "epochs": args.epochs,
-            "batch_size": args.batch_size
-        }
-    )
+    if WANDB_TRACKING:
+        run = wandb.init(
+            # Set the project where this run will be logged
+            project="projet_segmentation",
+            name="UnetBase",
+            resume="allow", # See https://docs.wandb.ai/guides/runs/resuming
+            # Track hyperparameters and run metadata
+            config={
+                "learning_rate": args.lr,
+                "epochs": args.epochs,
+                "batch_size": args.batch_size
+            }
+        )
 
     if args.inference is True:
         print('Inférence:')
@@ -413,11 +421,11 @@ def main():
         for epoch in range(model.args.start_epoch, model.args.epochs):
             model.training(epoch)
             model.validation(epoch)
-
-    try:
-        wandb.finish()
-    except:
-        pass
+    if WANDB_TRACKING:
+        try:
+            wandb.finish()
+        except:
+            pass
     model.display_losses()
 
 
