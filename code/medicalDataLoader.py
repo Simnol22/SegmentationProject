@@ -139,7 +139,7 @@ class MyDataloader(object):
                                         transform=self.transform,
                                         mask_transform=self.mask_transform,
                                         augment=self.args.augment,
-                                        equalize=True)
+                                        equalize=False)
 
         train_loader = DataLoader(train_set,
                                 batch_size=self.args.batch_size,
@@ -151,7 +151,7 @@ class MyDataloader(object):
                                     self.args.root_dir,
                                     transform=self.transform,
                                     mask_transform=self.mask_transform,
-                                    equalize=True)
+                                    equalize=False)
         
         val_loader = DataLoader(val_set,
                                 batch_size=self.args.val_batch_size,
