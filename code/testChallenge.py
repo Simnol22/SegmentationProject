@@ -9,6 +9,9 @@ import argparse
 from utils_2 import *
 
 from UNet_Base import UNet
+from UNet_Boosted import *
+from Unet_pp import * 
+
 import random
 import torchvision.transforms.functional as TF
 from random import random, randint
@@ -80,10 +83,10 @@ def runTesting(args):
     num_classes = 4
 
     # Create and load model
-    net = UNet(num_classes)
+    net = Unet_pp(num_classes)
 
     # Load
-    checkpoints = torch.load('./models/'+args.modelName)
+    checkpoints = torch.load('./models/pretrained/res50/'+args.modelName, map_location=torch.device('cpu'))
     net.load_state_dict(checkpoints['model_state_dict'])
     net.eval()
 
