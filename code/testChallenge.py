@@ -83,10 +83,10 @@ def runTesting(args):
     num_classes = 4
 
     # Create and load model
-    net = Unet_pp(num_classes)
+    net = UNetBoosted(num_classes)
 
     # Load
-    checkpoints = torch.load('./models/pretrained/res50/'+args.modelName, map_location=torch.device('cpu'))
+    checkpoints = torch.load('./models/UnetBoosted/test2/'+args.modelName, map_location=torch.device('cpu'))
     net.load_state_dict(checkpoints['model_state_dict'])
     net.eval()
 

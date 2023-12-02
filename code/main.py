@@ -143,6 +143,10 @@ class MyModel(object):
         mean_dice = np.zeros(4).astype(float)
         num_batches = len(self.train_loader)
         
+        DSC_All_class1 = []
+        DSC_All_class2 = []
+        DSC_All_class3 = []
+
         ## FOR EACH BATCH
         for j, data in enumerate(self.train_loader):
             ### Set to zero all the gradients
@@ -153,25 +157,32 @@ class MyModel(object):
             images, targets, _ = data
             if torch.cuda.is_available():
                 images, targets = images.cuda(), targets.cuda()
-            labels = to_var(getTargetSegmentation(targets))
+            labels = to_var(targets)
             images = to_var(images)
 
+            segmentationClasses = getTargetSegmentation(labels)
             #-- The CNN makes its predictions (forward pass)
             pred = self.model.forward(images)
+            pred_y = self.softMax(pred)
             # pred = self.softMax(self.model.forward(images))
 
             # COMPUTE THE LOSS
-            loss_value = self.loss(pred, labels)
-            dice = self.loss2_factor*self.dice(pred, labels)
+            loss_value = self.loss(pred, segmentationClasses)
+            dice = self.loss2_factor*self.dice(pred, segmentationClasses)
             # loss_value = loss_value + dice
 
             # DO THE STEPS FOR BACKPROP (two things to be done in pytorch)
             loss_value.backward()
             self.optimizer.step()
 
-            accuracy = evaluation(torch.argmax(pred, dim=1), labels, self.num_classes)
+            accuracy,dsc_image = evaluation(pred_y, segmentationClasses, self.num_classes)
+            
             mean_acc += accuracy
             mean_dice += dice.cpu().data.numpy()
+            
+            DSC_All_class1.append(dsc_image[0])
+            DSC_All_class2.append(dsc_image[1])
+            DSC_All_class3.append(dsc_image[2])
 
             #Eval_HD = np.zeros(4)
             #for i in range(0, 4):
@@ -187,9 +198,12 @@ class MyModel(object):
             printProgressBar(j + 1, num_batches,
                              prefix="[Training] Epoch: {} ".format(epoch),
                              length=15,
-                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}"    
-                             .format(loss_value.cpu(),accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice))
-
+                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}, Dices: [{:.4f},{:.4f},{:.4f}], mean Dice : {:.4f}"    
+                             .format(loss_value.cpu(),accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice,dsc_image[0],dsc_image[1],dsc_image[2],(dsc_image[0]+dsc_image[1]+dsc_image[2])/3))
+        dice1 = statistics.mean(DSC_All_class1)
+        dice2 = statistics.mean(DSC_All_class2)
+        dice3 = statistics.mean(DSC_All_class3)
+        dicemean = (dice1+dice2+dice3)/3
         mean_dice = mean_dice / num_batches
         mean_acc = mean_acc / num_batches
         mean_acc[np.isnan(mean_acc)] = 0
@@ -197,8 +211,8 @@ class MyModel(object):
 
         self.loss_training.append(loss_epoch)
         printProgressBar(num_batches, num_batches,
-                             done="[Training] Epoch: {}, LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}"
-                             .format(epoch,loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3],mean_dice.mean()))
+                             done="[Training] Epoch: {}, LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dices: [{:.4f},{:.4f},{:.4f}], mean Dice : {:.4f}"
+                             .format(epoch,loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3],dice1,dice2,dice3,dicemean))
 
 
     def validation(self, epoch):
@@ -208,21 +222,31 @@ class MyModel(object):
         mean_dice = np.zeros(4).astype(float)
         num_batches = len(self.val_loader)
 
+        DSC_All_class1 = []
+        DSC_All_class2 = []
+        DSC_All_class3 = []
+
         for j, data in enumerate(self.val_loader):
             images, targets, _ = data
             if torch.cuda.is_available():
                 images, targets = images.cuda(), targets.cuda()
-            labels = getTargetSegmentation(to_var(targets))
+            labels = to_var(targets)
             images = to_var(images)
+
+            segmentationClasses = getTargetSegmentation(labels)
+
             pred = self.model.forward(images.float())
+            pred_y = self.softMax(pred)
             # pred = self.softMax(self.model.forward(images.float()))
-            loss_value = self.loss(pred, labels)
+            loss_value = self.loss(pred, segmentationClasses)
             dice = self.loss2_factor*self.dice(pred, targets)
             # loss_value = loss_value + dice
-            accuracy = evaluation(pred, labels, self.num_classes)
+            accuracy, dsc_image = evaluation(pred_y, segmentationClasses, self.num_classes)
             mean_acc += accuracy
             mean_dice += dice.cpu().data.numpy()
-
+            DSC_All_class1.append(dsc_image[0])
+            DSC_All_class2.append(dsc_image[1])
+            DSC_All_class3.append(dsc_image[2])
             #Eval_HD = np.zeros(4)
             #for i in range(0, 4):
             #    Eval_HD[i] = losses.HausdorffLoss(pred[0,i,:,:], labels[0,i,:,:])
@@ -236,9 +260,13 @@ class MyModel(object):
             printProgressBar(j + 1, num_batches,
                              prefix="[Validation] Epoch: {} ".format(epoch),
                              length=15,
-                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}"
-                             .format(loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice))
+                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}, Dices: [{:.4f},{:.4f},{:.4f}], mean Dice : {:.4f}"
+                             .format(loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice, dsc_image[0],dsc_image[1],dsc_image[2],(dsc_image[0]+dsc_image[1]+dsc_image[2])/3))
         
+        dice1 = statistics.mean(DSC_All_class1)
+        dice2 = statistics.mean(DSC_All_class2)
+        dice3 = statistics.mean(DSC_All_class3)
+        dicemean = (dice1+dice2+dice3)/3
         mean_dice = mean_dice / num_batches
         mean_acc = mean_acc / num_batches
         mean_acc[np.isnan(mean_acc)] = 0
@@ -252,52 +280,83 @@ class MyModel(object):
             self.save(epoch)
         
         printProgressBar(num_batches, num_batches,
-                             done="[Validation] Epoch: {}, LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}, Save: {}"
-                             .format(epoch,loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3],mean_dice.mean(),is_saved))
+                             done="[Validation] Epoch: {}, LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}],, Dices: [{:.4f},{:.4f},{:.4f}], mean Dice : {:.4f}, Save: {}"
+                             .format(epoch,loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3],dice1,dice2,dice3,dicemean,is_saved))
 
 
     def inference(self):
+        mean_acc = np.zeros(4).astype(float)
+        DSC_All_class1 = []
+        DSC_All_class2 = []
+        DSC_All_class3 = []
+
         self.model.eval()
         loss_epoch = []
         mean_acc = np.array([0,0,0,0]).astype(float)
-        num_batches = len(self.val_loader)
+        num_batches = len(self.test_loader)
 
-        for j, data in enumerate(self.val_loader):
+        path = os.path.join('./ResultsMain/Images/')
+        if not os.path.exists(path):
+            os.makedirs(path)
+        
+        for j, data in enumerate(self.test_loader):
             images, labels, _ = data
-            labels = getTargetSegmentation(to_var(labels))
+            
+            labels = to_var(labels)
             images = to_var(images)
-            pred = self.softMax(self.model.forward(images.float()))
-            loss_value = self.loss(pred, labels)
-            accuracy = evaluation(pred, labels, self.num_classes)
+            
+            segmentationClasses = getTargetSegmentation(labels)
+
+            pred = self.model.forward(images.float())
+            pred_y = self.softMax(pred)
+            accuracy=0
+            accuracy, dsc_image = evaluation(pred_y, segmentationClasses, self.num_classes)
+
+            DSC_All_class1.append(dsc_image[0])
+            DSC_All_class2.append(dsc_image[1])
+            DSC_All_class3.append(dsc_image[2])
             mean_acc += accuracy
 
-            loss_epoch.append(loss_value.cpu().data.numpy())
+            masks = torch.argmax(pred_y, dim=1)
+            masks=masks.view((256,256))
+            
+            #loss_value = self.loss(pred, segmentationClasses)
+            #accuracy = evaluation(pred, labels, self.num_classes)
+            #mean_acc += accuracy
+
+           #loss_epoch.append(loss_value.cpu().data.numpy())
+
+            torchvision.utils.save_image(torch.cat([images.data, labels.data, masks.view(labels.shape[0],1,256,256).data/3.0]),os.path.join(path,str(j)+'.png'), padding=0)
+
             printProgressBar(j + 1, num_batches,
                              prefix="[Inference]",
-                             length=15,
-                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}] ".format(loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3]))
-            
-            for i, image in enumerate(images.numpy()):
-                fig = plt.figure()
-                plt.subplot(1,3,1).set_title('Image')
-                plt.imshow(image[0])
-                plt.colorbar()
-                plt.subplot(1,3,2).set_title('Label')
-                plt.imshow(labels.numpy()[i])
-                plt.colorbar()
-                plt.subplot(1,3,3).set_title('Prédiction')
-                plt.imshow(torch.argmax(pred, dim=1).numpy()[i])
-                plt.colorbar()
-                fig.suptitle('Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}]'.format(
-                    loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3]))
-                plt.show()
-        
+                             length=15
+                            )
+
+            #for i, image in enumerate(images.numpy()):
+                #fig = plt.figure()
+                #plt.subplot(1,3,1).set_title('Image')
+                #plt.imshow(image[0])
+                #plt.colorbar()
+                #plt.subplot(1,3,2).set_title('Label')
+                #plt.imshow(labels.numpy()[i])
+                #plt.colorbar()
+                #plt.subplot(1,3,3).set_title('Prédiction')
+                #plt.imshow(torch.argmax(pred, dim=1).numpy()[i])
+                #plt.colorbar()
+                #fig.suptitle('Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}]'.format(
+                #    loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3]))
+                #plt.show()
+        dice1 = statistics.mean(DSC_All_class1)
+        dice2 = statistics.mean(DSC_All_class2)
+        dice3 = statistics.mean(DSC_All_class3)
+        dicemean = (dice1+dice2+dice3)/3
         mean_acc = mean_acc / num_batches
         mean_acc[np.isnan(mean_acc)] = 0
         loss_epoch = np.asarray(loss_epoch).mean()
         
         printProgressBar(num_batches, num_batches,
-                             done="[Inference], LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}]".format(loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3]))
+                             done="[Inference], LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], dices : [{:.4f},{:.4f},{:.4f}], mean dice : {:.4f}".format(loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3],dice1,dice2,dice3,dicemean))
 
 
 
@@ -426,7 +485,7 @@ def main():
             wandb.finish()
         except:
             pass
-    model.display_losses()
+    #model.display_losses()
 
 
 if __name__ == "__main__":

@@ -163,13 +163,13 @@ class MyDataloader(object):
                                     self.args.root_dir,
                                     transform=self.transform,
                                     mask_transform=self.mask_transform,
-                                    equalize=True)
+                                    equalize=False)
         
         test_loader = DataLoader(test_set,
-                                batch_size=self.args.val_batch_size,
+                                batch_size=1,
                                 worker_init_fn=np.random.seed(0),
-                                num_workers=self.args.num_workers,
-                                shuffle=True)
+                                num_workers=5,
+                                shuffle=False)
         
         return train_loader, val_loader, test_loader 
     

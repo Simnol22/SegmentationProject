@@ -5,6 +5,7 @@ Augment/
 *$py.class
 wandb/
 resultsTest/
+resultsMain/
 code/Data/test/
 models/
 # C extensions

@@ -86,7 +86,9 @@ def inferenceTest(net, img_batch, modelName):
         segmentation_classes = getTargetSegmentation(labels)
 
         pred_y = softMax(net_predictions)
+
         masks = torch.argmax(pred_y,dim=1)
+
         # plt.imshow(masks[0].numpy())
         # plt.colorbar()
         # plt.show()

@@ -20,13 +20,37 @@ from torchmetrics import ConfusionMatrix
 # from scipy.spatial.distance import directed_hausdorff
 
 
+def testDSC(pred, labels): #Code de test DSC pris du code de testChallenge.py
+    masks = pred.view((256, 256))
+    DSC_image = []
+    for c_i in range(3):
+            mask_pred = np.zeros((torch.Size([256, 256])))
+            mask_gt = np.zeros((torch.Size([256, 256])))
+
+            idx=np.where(masks.cpu()==c_i+1)
+            mask_pred[idx]=1
+
+            idx = np.where(labels.cpu() == c_i + 1)
+            mask_gt[idx] = 1
+
+            DSC_image.append(dc(mask_pred,mask_gt))
+    return DSC_image
 
 def evaluation(pred, labels, num_classes):
+    
+    batch_size = pred.shape[0]
     if torch.cuda.is_available():
         confmat = ConfusionMatrix(task="multiclass", num_classes=num_classes).to(torch.device("cuda:0" if torch.cuda.is_available() else "cpu"))
     else:
         confmat = ConfusionMatrix(task="multiclass", num_classes=num_classes)
-    confmat = confmat(pred, labels).cpu().numpy()
+    
+    masks = torch.argmax(pred, dim=1)
+
+    if batch_size == 1: #For inference
+        confmask = masks.view((256, 256))
+        confmat = confmat(confmask, labels).cpu().numpy()
+    else:
+        confmat = confmat(masks, labels).cpu().numpy()
     accuracy = np.array([confmat[0,0]/confmat[:,0].sum(),
                          confmat[1,1]/confmat[:,1].sum(),
                          confmat[2,2]/confmat[:,2].sum(),
@@ -43,7 +67,20 @@ def evaluation(pred, labels, num_classes):
     res[res>1] = 1
     res[accuracy == float('nan')] = 0
     res[np.isnan(res)] = 0
-    return accuracy#, res
+    diceImages1 = []
+    diceImages2 = []
+    diceImages3 = []
+
+    for i in range(batch_size):
+        if batch_size == 1: #For inference
+            dsc_images = testDSC(masks[i], labels)
+        else:
+            dsc_images = testDSC(masks[i], labels[i])
+        diceImages1.append(dsc_images[0])
+        diceImages2.append(dsc_images[1])
+        diceImages3.append(dsc_images[2])
+
+    return accuracy, [statistics.mean(diceImages1), statistics.mean(diceImages2), statistics.mean(diceImages3)]
 
 
 def args_to_command(args):
@@ -208,8 +245,10 @@ def inference(net, img_batch, modelName, epoch):
 
         net_predictions = net(images)
         segmentation_classes = getTargetSegmentation(labels)
+        
         CE_loss_value = CE_loss(net_predictions, segmentation_classes)
         losses.append(CE_loss_value.cpu().data.numpy())
+
         pred_y = softMax(net_predictions)
         masks = torch.argmax(pred_y, dim=1)
 
