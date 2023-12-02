@@ -130,7 +130,7 @@ class MyModel(object):
 
         else:
             self.best_loss = 1000
-
+        self.best_dice = 0
         # Statistics
         self.loss_training = []
         self.loss_validation = []
@@ -275,7 +275,8 @@ class MyModel(object):
         self.loss_validation.append(loss_epoch)
 
         is_saved = False
-        if loss_epoch < self.best_loss:
+        if dicemean > self.best_dice:
+            self.best_dice = dicemean
             is_saved = True
             self.save(epoch)
         
