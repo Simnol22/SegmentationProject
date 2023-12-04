@@ -38,14 +38,15 @@ class MyModel(object):
         self.args.augment_dir = './Augment/'
 
         if self.args.augment is True:
-            augment_data(self.args.root_dir, self.args.augment_dir)
+            augment_data(self.args.root_dir, self.args.augment_dir,num_aug=5,semisup=SEMI_SUPERVISE)
             self.args.root_dir = self.args.augment_dir
         if self.args.on_augmented is True:
             self.args.root_dir = self.args.augment_dir
 
         myDataLoader = MyDataloader(self.args)
         self.train_loader, self.val_loader, self.test_loader = myDataLoader.create_labelled_dataloaders()
-        self.unlabelled_loader = myDataLoader.create_unlabelled_dataloaders()
+        if SEMI_SUPERVISE:
+            self.unlabelled_loader = myDataLoader.create_unlabelled_dataloaders()
         self.num_classes = 4
         self.losses_directory = 'Results/Statistics/' + self.args.model + '/' + self.args.name
         self.model_directory = 'models/' + self.args.model + '/' + self.args.name
@@ -505,7 +506,7 @@ def main():
         run = wandb.init(
             # Set the project where this run will be logged
             project="projet_segmentation",
-            name="UnetPPres34semi2  ",
+            name="UnetPPres50semi",
             resume="allow", # See https://docs.wandb.ai/guides/runs/resuming
             # Track hyperparameters and run metadata
             config={

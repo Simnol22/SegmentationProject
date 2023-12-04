@@ -3,8 +3,9 @@ import cv2
 import numpy as np
 from skimage import exposure
 from skimage.util import random_noise
+from random import randrange
 
-def augment_data(input_path, output_path, img_folder='Img', gt_folder='GT', rotation_range=20, translation_range=(20, 20), noise_level=0.01):
+def augment_data(input_path, output_path, img_folder='Img', gt_folder='GT',semisup=False, rotation_range=40, translation_range=(20, 20), noise_level=0.01,num_aug=1):
     """
     Augmente les données dans input_path et les sauvegarde dans output_path.
 
@@ -22,7 +23,7 @@ def augment_data(input_path, output_path, img_folder='Img', gt_folder='GT', rota
     os.makedirs(output_path, exist_ok=True)
     print(f"********Début de l'augmentation")
     # Dossiers de données
-    data_folders = ['train', 'val']
+    data_folders = ['train', 'val', 'test']
 
     for folder in data_folders:
         input_folder_path = os.path.join(input_path, folder)
@@ -45,33 +46,60 @@ def augment_data(input_path, output_path, img_folder='Img', gt_folder='GT', rota
             # Charger le masque (label) si présent
             mask_path = os.path.join(input_folder_path, gt_folder, file)
             mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE) if os.path.exists(mask_path) else None
+            for i in range(num_aug):
+                # Augmentation des données
+                augmented_image, augmented_mask = apply_augmentation(image, mask, rotation_range, translation_range, noise_level)
 
-            # Augmentation des données
-            augmented_image, augmented_mask = apply_augmentation(image, mask, rotation_range, translation_range, noise_level)
+                # Sauvegarder les images augmentées dans le dossier de sortie
+                os.makedirs(os.path.join(output_folder_path, img_folder), exist_ok=True)
+                os.makedirs(os.path.join(output_folder_path, gt_folder), exist_ok=True)
+                cv2.imwrite(os.path.join(output_folder_path, img_folder, f'{file[:-4]}_augmented'+str(i)+'.png'), augmented_image)
+                cv2.imwrite(os.path.join(output_folder_path, img_folder, f'{file[:-4]}.png'), image)
+                if augmented_mask is not None:
+                    cv2.imwrite(os.path.join(output_folder_path, gt_folder, f'{file[:-4]}_augmented'+str(i)+'.png'), augmented_mask)
+                    cv2.imwrite(os.path.join(output_folder_path, gt_folder, f'{file[:-4]}.png'), mask)
 
-            # Sauvegarder les images augmentées dans le dossier de sortie
-            os.makedirs(os.path.join(output_folder_path, img_folder), exist_ok=True)
-            os.makedirs(os.path.join(output_folder_path, gt_folder), exist_ok=True)
-            cv2.imwrite(os.path.join(output_folder_path, img_folder, f'{file[:-4]}_augmented.png'), augmented_image)
-            cv2.imwrite(os.path.join(output_folder_path, img_folder, f'{file[:-4]}.png'), image)
-            if augmented_mask is not None:
-                cv2.imwrite(os.path.join(output_folder_path, gt_folder, f'{file[:-4]}_augmented.png'), augmented_mask)
-                cv2.imwrite(os.path.join(output_folder_path, gt_folder, f'{file[:-4]}.png'), mask)
+    if semisup: # Si on utilise les pseudo-labels, on veut refaire la même chose pour les données non labellisées
+        input_folder_path = os.path.join(input_path, 'train')
+        output_folder_path = os.path.join(output_path, 'train')
+        img_folder_unlabeled = 'Img-Unlabeled'
+        gt_folder_unlabeled = 'GTsemi'
+        files = os.listdir(os.path.join(input_folder_path, img_folder_unlabeled))
+        for file in files:
+           # Charger l'image
+           image_path = os.path.join(input_folder_path, img_folder_unlabeled, file)
+           image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
 
+           if image is None:
+               break
+
+           mask_path = os.path.join(input_folder_path, gt_folder_unlabeled, file)
+           mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE) if os.path.exists(mask_path) else None
+           for i in range(num_aug):
+               # Augmentation des données
+               augmented_image, augmented_mask = apply_augmentation(image, mask, rotation_range, translation_range, noise_level)
+               # Sauvegarder les images augmentées dans le dossier de sortie
+               os.makedirs(os.path.join(output_folder_path, img_folder_unlabeled), exist_ok=True)
+               os.makedirs(os.path.join(output_folder_path, gt_folder_unlabeled), exist_ok=True)
+               cv2.imwrite(os.path.join(output_folder_path, img_folder_unlabeled, f'{file[:-4]}_augmented'+str(i)+'.png'), augmented_image)
+               cv2.imwrite(os.path.join(output_folder_path, img_folder_unlabeled, f'{file[:-4]}.png'), image)
+               if augmented_mask is not None:
+                   cv2.imwrite(os.path.join(output_folder_path, gt_folder_unlabeled, f'{file[:-4]}_augmented'+str(i)+'.png'), augmented_mask)
+                   cv2.imwrite(os.path.join(output_folder_path, gt_folder_unlabeled, f'{file[:-4]}.png'), mask)
     
 def apply_augmentation(image, mask, rotation_range, translation_range, noise_level):
     # Rotation, translation, et bruit aléatoires
     apply_rotation = False
     apply_translation = False
     apply_noise = False
-    while apply_rotation or apply_translation or apply_noise is False:
-        apply_rotation = np.random.choice([True, False])
-        apply_translation = np.random.choice([True, False])
-        apply_noise = np.random.choice([True, False])
-    # print(f'rotation = {apply_rotation}')
-    # print(f'translation = {apply_translation}')
-    # print(f'noise = {apply_noise}')
-
+    idx_aug = randrange(3)
+    match idx_aug:
+        case 0:
+            apply_rotation = True
+        case 1:
+            apply_translation = True
+        case 2:
+            apply_noise = True
 
     # Rotation aléatoire
     if apply_rotation:
