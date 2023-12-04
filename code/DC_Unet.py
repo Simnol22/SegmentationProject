@@ -111,7 +111,7 @@ class ResPath(torch.nn.Module):
 
 
 class DC_Unet(torch.nn.Module):
-    def __init__(self, in_channels=3, out_channels=1, nf=32, use_dropout=False):
+    def __init__(self, in_channels=1, out_channels=4, nf=32, use_dropout=False):
         super(DC_Unet, self).__init__()
         self.mres_block1 = DCBlock(in_channels, u=nf)
         self.pool = torch.nn.MaxPool2d(kernel_size=2)

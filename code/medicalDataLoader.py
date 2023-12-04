@@ -18,7 +18,7 @@ warnings.filterwarnings("ignore")
 
 
 def make_dataset(root, mode):
-    assert mode in ['train','val', 'test']
+    assert mode in ['train','val', 'test', 'trainsemi', 'loadsemi']
     items = []
 
     if mode == 'train':
@@ -49,7 +49,8 @@ def make_dataset(root, mode):
         for it_im, it_gt in zip(images, labels):
             item = (os.path.join(val_img_path, it_im), os.path.join(val_mask_path, it_gt))
             items.append(item)
-    else:
+
+    elif mode == 'test':
         test_img_path = os.path.join(root, 'test', 'Img')
         test_mask_path = os.path.join(root, 'test', 'GT')
 
@@ -61,6 +62,43 @@ def make_dataset(root, mode):
 
         for it_im, it_gt in zip(images, labels):
             item = (os.path.join(test_img_path, it_im), os.path.join(test_mask_path, it_gt))
+            items.append(item)
+    
+    elif mode == 'trainsemi': #On prend nos nouvelles images et leurs pseudolabels + les images de train habituelles.
+        trainsemi_img_path = os.path.join(root, 'train', 'Img-Unlabeled')
+        trainsemi_mask_path = os.path.join(root, 'train', 'GTsemi')
+        train_img_path = os.path.join(root, 'train', 'Img')
+        train_mask_path = os.path.join(root, 'train', 'GT')
+
+        images_semi = os.listdir(trainsemi_img_path)
+        labels_semi = os.listdir(trainsemi_mask_path)
+        images_train = os.listdir(train_img_path)
+        labels_train = os.listdir(train_mask_path)
+
+        images_semi.sort()
+        labels_semi.sort()
+        images_train.sort()
+        labels_train.sort()
+
+        #On mélange les images semi-supervisées et les images de train
+        for it_im, it_gt in zip(images_semi, labels_semi):
+            item = (os.path.join(trainsemi_img_path, it_im), os.path.join(trainsemi_mask_path, it_gt))
+            items.append(item)
+        
+        for it_im, it_gt in zip(images_train, labels_train):
+            item = (os.path.join(train_img_path, it_im), os.path.join(train_mask_path, it_gt))
+            items.append(item)
+        
+
+    elif mode == 'loadsemi':
+        loadsemi_img_path = os.path.join(root, 'train', 'Img-Unlabeled')
+
+        images = os.listdir(loadsemi_img_path)
+
+        images.sort()
+
+        for it_im in images:
+            item = (os.path.join(loadsemi_img_path, it_im), os.path.join(loadsemi_img_path, it_im))
             items.append(item)
 
     return items
@@ -174,6 +212,15 @@ class MyDataloader(object):
         return train_loader, val_loader, test_loader 
     
     def create_unlabelled_dataloaders(self):
-        #TODO
-        unlabelled_loader = None
+        unlabelled_set =  MedicalImageDataset('trainsemi',
+                                    self.args.root_dir,
+                                    transform=self.transform,
+                                    mask_transform=self.mask_transform,
+                                    equalize=False)
+        unlabelled_loader = DataLoader(unlabelled_set,
+                                batch_size=self.args.batch_size,
+                                worker_init_fn=np.random.seed(0),
+                                num_workers=self.args.num_workers,
+                                shuffle=True) #On veut les shuffle ici pour que les images semi-supervisées soient mélangées avec les images de train.
+        
         return unlabelled_loader

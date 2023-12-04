@@ -10,7 +10,7 @@ aux_params=dict( #Params for pretrained models
 
 class Unet_pp(smp.UnetPlusPlus):
     def __init__(self, num_classes):
-        super().__init__('resnet50', classes=num_classes, aux_params=aux_params,in_channels=1)
+        super().__init__('resnet34',encoder_weights='imagenet', classes=num_classes, aux_params=aux_params,in_channels=1)
 
     def parameters(self):
         return super().parameters()

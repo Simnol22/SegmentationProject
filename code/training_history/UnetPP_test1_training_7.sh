@@ -1,2 +1,0 @@
-#!/bin/sh
-python3 main.py --name=test1 --loss=CE --loss-weights 0.05 0.7 0.9 0.7 --model=UnetPP --num-workers=0 --epochs=150 --start-epoch=0 --batch-size=16 --val-batch-size=8 --optimizer=NAdam --lr=0.001 --momentum=0.9 --load-weights=res50    --inference

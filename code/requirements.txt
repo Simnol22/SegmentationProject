@@ -4,3 +4,6 @@ torchmetrics
 segmentation_models_pytorch
 wandb
 tensorflow
+pandas
+opencv-python
+matplotlib

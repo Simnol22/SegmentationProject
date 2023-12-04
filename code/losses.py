@@ -29,7 +29,7 @@ class DiceLoss(nn.Module):
         
         dice = (2.*intersection + smooth)/(sum_a + sum_b + smooth)  
         return 1 - dice
-    
+
 class MyCenterLoss(nn.Module):
     def __init__(self):
         super(MyCenterLoss, self).__init__()

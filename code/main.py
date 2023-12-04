@@ -2,14 +2,19 @@ import argparse
 import torch
 from progressBar import printProgressBar
 from medicalDataLoader import MyDataloader
+import medicalDataLoader
+from torch.utils.data import DataLoader
 from utils import *
 from UNet_Base import *
 from UNet_Boosted import *
 from UNet_Higher import *
 from Unet_pp import *
+from DC_Unet import *
+from MNet import *
 import segmentation_models_pytorch as smp
 from data_augmentation import augment_data
 import losses
+from torchvision import transforms
 
 # from torch.utils.data import DataLoader
 # from torchvision import transforms
@@ -22,6 +27,7 @@ import wandb
 from wandb.keras import WandbMetricsLogger, WandbModelCheckpoint
 
 WANDB_TRACKING = False
+SEMI_SUPERVISE = False
 
 class MyModel(object):
     def __init__(self, args):
@@ -55,6 +61,8 @@ class MyModel(object):
                 self.model = UNetHigher(self.num_classes)
             case 'UnetPP':
                 self.model = Unet_pp(self.num_classes)  
+            case 'MNet':	
+                self.model = MNet(1,self.num_classes)
         print("Nombre de paramètres: {0:,}".format(sum(p.numel() for p in self.model.parameters() if p.requires_grad)))
 
         # Loss
@@ -141,14 +149,19 @@ class MyModel(object):
         loss_epoch = []
         mean_acc = np.zeros(4).astype(float)
         mean_dice = np.zeros(4).astype(float)
-        num_batches = len(self.train_loader)
+        if SEMI_SUPERVISE:
+            loader = self.unlabelled_loader
+        else:
+            loader = self.train_loader
+
+        num_batches = len(loader)
         
         DSC_All_class1 = []
         DSC_All_class2 = []
         DSC_All_class3 = []
 
         ## FOR EACH BATCH
-        for j, data in enumerate(self.train_loader):
+        for j, data in enumerate(loader):
             ### Set to zero all the gradients
             self.model.zero_grad()
             self.optimizer.zero_grad()
@@ -189,7 +202,7 @@ class MyModel(object):
             #    Eval_HD[i] = losses.HausdorffLoss(pred[0,i,:,:], labels[0,i,:,:])
             if WANDB_TRACKING:
                 try:
-                    wandb.log({"loss": loss_value,"accuracy0": accuracy[0],"accuracy1": accuracy[1],"accuracy2": accuracy[2],"accuracy3": accuracy[3],"dice":dice,"epoch":epoch})
+                    wandb.log({"loss": loss_value,"mean_accuracy":(accuracy[1]+ accuracy[2] + accuracy[3])/3,"accuracy0": accuracy[0],"accuracy1": accuracy[1],"accuracy2": accuracy[2],"accuracy3": accuracy[3],"mean_dice":(dsc_image[0]+dsc_image[1]+dsc_image[2])/3,"epoch":epoch})
                 except:
                     pass
 
@@ -252,7 +265,7 @@ class MyModel(object):
             #    Eval_HD[i] = losses.HausdorffLoss(pred[0,i,:,:], labels[0,i,:,:])
             if WANDB_TRACKING:
                 try:
-                    wandb.log({"val_loss": loss_value,"val_accuracy0": accuracy[0],"val_accuracy1": accuracy[1],"val_accuracy2": accuracy[2],"val_accuracy3": accuracy[3],"val_dice": dice,"epoch":epoch})
+                    wandb.log({"val_loss": loss_value,"val_mean_accuracy": (accuracy[1]+accuracy[2]+accuracy[3])/3,"val_accuracy0": accuracy[0],"val_accuracy1": accuracy[1],"val_accuracy2": accuracy[2],"val_accuracy3": accuracy[3],"val_mean_dice": (dsc_image[0]+dsc_image[1]+dsc_image[2])/3,"epoch":epoch})
                 except:
                     pass
 
@@ -334,20 +347,6 @@ class MyModel(object):
                              length=15
                             )
 
-            #for i, image in enumerate(images.numpy()):
-                #fig = plt.figure()
-                #plt.subplot(1,3,1).set_title('Image')
-                #plt.imshow(image[0])
-                #plt.colorbar()
-                #plt.subplot(1,3,2).set_title('Label')
-                #plt.imshow(labels.numpy()[i])
-                #plt.colorbar()
-                #plt.subplot(1,3,3).set_title('Prédiction')
-                #plt.imshow(torch.argmax(pred, dim=1).numpy()[i])
-                #plt.colorbar()
-                #fig.suptitle('Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}]'.format(
-                #    loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3]))
-                #plt.show()
         dice1 = statistics.mean(DSC_All_class1)
         dice2 = statistics.mean(DSC_All_class2)
         dice3 = statistics.mean(DSC_All_class3)
@@ -358,9 +357,6 @@ class MyModel(object):
         
         printProgressBar(num_batches, num_batches,
                              done="[Inference], LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], dices : [{:.4f},{:.4f},{:.4f}], mean dice : {:.4f}".format(loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3],dice1,dice2,dice3,dicemean))
-
-
-
 
     def save(self, epoch):
         self.best_loss = self.loss_validation[epoch]
@@ -380,7 +376,6 @@ class MyModel(object):
             os.makedirs(self.losses_directory)
         np.save(os.path.join(self.losses_directory, 'losses.npy'),
                 np.array((self.loss_training, self.loss_validation)))
-        
 
     def display_losses(self):
         try:
@@ -391,7 +386,49 @@ class MyModel(object):
         except:
             print('Pas de losses pour le modèle {}'.format(self.args.name))
 
+    def create_pseudo(self):
+        root_dir = self.args.root_dir
+        self.model.eval()
+        if self.args.cuda:
+            self.model.cuda()
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5), (0.20))
+        ])
 
+        mask_transform = transforms.Compose([
+            transforms.ToTensor()
+        ])
+
+        semi_set = medicalDataLoader.MedicalImageDataset('loadsemi',
+                                                        root_dir,
+                                                        transform=transform,
+                                                        mask_transform=mask_transform,
+                                                        equalize=False)
+
+        semi_loader = DataLoader(semi_set,
+                                batch_size=1,
+                                num_workers=5,
+                                shuffle=False)
+        
+        save_path = './Data/train/GTsemi/'
+        if not os.path.exists(save_path):
+                os.makedirs(save_path)
+        for j, data in enumerate(semi_loader):
+            images, labels, paths = data
+            save_path = paths[0].replace('Img-Unlabeled','GTsemi')
+
+            images = images.cuda()
+            images = to_var(images)
+
+            pred = self.model.forward(images.float())
+            pred_y = self.softMax(pred)
+
+            masks = torch.argmax(pred_y, dim=1)
+            masks=masks.view((256,256))
+
+            torchvision.utils.save_image(masks.view(labels.shape[0],1,256,256).data/3.0,save_path, padding=0)
+        print("Pseudo-labels créés !")
 
 def main():
     parser = argparse.ArgumentParser(description="Entrainement challenge MTI865")
@@ -407,7 +444,7 @@ def main():
     parser.add_argument('--loss-weights', nargs='+', type=float, default=None, action='store',
                         help='Liste de 4 poids (défaut: None)')
     parser.add_argument('--model', type=str, default='Unet',
-                        choices=['Unet', 'UnetBoosted', 'UnetHigher', 'UnetPP'],
+                        choices=['Unet', 'UnetBoosted', 'UnetHigher', 'UnetPP','MNet'],
                         help='Choix du modèle (défaut: Unet)')
     parser.add_argument('--num-workers', type=int, default=0,
                         help='Nombre de coeurs pour les dataloaders (défaut: 0)')
@@ -438,22 +475,28 @@ def main():
     # Apprentissage semi-supervisé
     parser.add_argument('--non-label', action='store_true', default=False,
                         help='Entrainement de l\'encodeur sur le dataset \
-                            non labellisé')
+                            semi-supervisé')
     # Options d'évaluation
     parser.add_argument('--inference', action='store_true', default=False,
                         help='Réalise des prédictions et affiche les résultats')
     # Wandb
     parser.add_argument('--wandb', action='store_true', default=False,
                         help='Activer ou non le trackeur wandb')
-
+    
+    # Create pseudo-labels for semi-supervised learning
+    parser.add_argument('--create-pseudo', action='store_true', default=False,
+                        help='Activer ou non le trackeur wandb')
+    
     args = parser.parse_args()
     save_args_to_sh(args)
 
     args.cuda = args.cuda and torch.cuda.is_available()
     print("Cuda disponible :",torch.cuda.is_available())
 
-    global WANDB_TRACKING
+    global WANDB_TRACKING, SEMI_SUPERVISE
     WANDB_TRACKING = args.wandb
+    SEMI_SUPERVISE = args.non_label
+    print("Apprentissage semi-supervisé :",SEMI_SUPERVISE)
 
     model = MyModel(args)
 
@@ -462,7 +505,7 @@ def main():
         run = wandb.init(
             # Set the project where this run will be logged
             project="projet_segmentation",
-            name="UnetBase",
+            name="UnetPPres34semi2  ",
             resume="allow", # See https://docs.wandb.ai/guides/runs/resuming
             # Track hyperparameters and run metadata
             config={
@@ -475,19 +518,21 @@ def main():
     if args.inference is True:
         print('Inférence:')
         model.inference()
+    elif args.create_pseudo is True:
+        print('Création des pseudo-labels:')
+        model.create_pseudo()
     else :
         print('Epoch de départ:', model.args.start_epoch)
         print('Epochs totales:', model.args.epochs)
         for epoch in range(model.args.start_epoch, model.args.epochs):
             model.training(epoch)
             model.validation(epoch)
+    
     if WANDB_TRACKING:
         try:
             wandb.finish()
         except:
             pass
-    #model.display_losses()
-
 
 if __name__ == "__main__":
    main()

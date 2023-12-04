@@ -6,8 +6,9 @@ Augment/
 wandb/
 resultsTest/
 resultsMain/
-code/Data/test/
+
 models/
+remiseProf/
 # C extensions
 *.so
 
