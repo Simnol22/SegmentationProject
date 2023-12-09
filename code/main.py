@@ -7,24 +7,18 @@ from torch.utils.data import DataLoader
 from utils import *
 from UNet_Base import *
 from UNet_Boosted import *
-from UNet_Higher import *
+from MANet import *
 from Unet_pp import *
 from DC_Unet import *
-from MNet import *
+from FPN import *
 import segmentation_models_pytorch as smp
 from data_augmentation import augment_data
 import losses
 from torchvision import transforms
 
-# from torch.utils.data import DataLoader
-# from torchvision import transforms
-# from torchgeometry.losses import tversky
-# import random
-# import pdb
 import matplotlib.pyplot as plt
-# from sklearn.metrics import accuracy_score 
+
 import wandb
-from wandb.keras import WandbMetricsLogger, WandbModelCheckpoint
 
 WANDB_TRACKING = False
 SEMI_SUPERVISE = False
@@ -58,20 +52,17 @@ class MyModel(object):
                 self.model = UNet(self.num_classes)
             case 'UnetBoosted':
                 self.model = UNetBoosted(self.num_classes)
-            case 'UnetHigher':
-                self.model = UNetHigher(self.num_classes)
             case 'UnetPP':
                 self.model = Unet_pp(self.num_classes)  
-            case 'MNet':	
-                self.model = MNet(1,self.num_classes)
+            case 'MANet':	
+                self.model = MANet(self.num_classes)
+            case 'FPN':
+                self.model = FPN(self.num_classes)
         print("Nombre de paramètres: {0:,}".format(sum(p.numel() for p in self.model.parameters() if p.requires_grad)))
 
-        # Loss
         self.softMax = nn.Softmax()
-        self.dice = losses.dice_loss()
-        # self.dice = nn.KLDivLoss()
-        # self.dice = losses.MyCenterLoss()
-        self.loss2_factor = 0.1
+        
+        # Loss
         match self.args.loss:
             case 'CE':
                 if self.args.loss_weights is None :
@@ -92,7 +83,6 @@ class MyModel(object):
             self.model.cuda()
             self.softMax.cuda()
             self.loss.cuda()
-            self.dice.cuda()
     
         # Optimizer
         match self.args.optimizer:
@@ -175,32 +165,29 @@ class MyModel(object):
             images = to_var(images)
 
             segmentationClasses = getTargetSegmentation(labels)
+            
             #-- The CNN makes its predictions (forward pass)
-            pred = self.model.forward(images)
+            pred = self.model.forward(images.float())
             pred_y = self.softMax(pred)
-            # pred = self.softMax(self.model.forward(images))
 
-            # COMPUTE THE LOSS
+
+            # Computing the loss
             loss_value = self.loss(pred, segmentationClasses)
-            dice = self.loss2_factor*self.dice(pred, segmentationClasses)
-            # loss_value = loss_value + dice
 
-            # DO THE STEPS FOR BACKPROP (two things to be done in pytorch)
+            # Backprop steps. Applying backward on the loss value, then the optimizer updates the weights
             loss_value.backward()
             self.optimizer.step()
 
-            accuracy,dsc_image = evaluation(pred_y, segmentationClasses, self.num_classes)
+            # Compute the accuracy and the dice score
+            accuracy, dsc_image = evaluation(pred_y, segmentationClasses, self.num_classes)
             
             mean_acc += accuracy
-            mean_dice += dice.cpu().data.numpy()
             
             DSC_All_class1.append(dsc_image[0])
             DSC_All_class2.append(dsc_image[1])
             DSC_All_class3.append(dsc_image[2])
 
-            #Eval_HD = np.zeros(4)
-            #for i in range(0, 4):
-            #    Eval_HD[i] = losses.HausdorffLoss(pred[0,i,:,:], labels[0,i,:,:])
+            #For experiment tracking
             if WANDB_TRACKING:
                 try:
                     wandb.log({"loss": loss_value,"mean_accuracy":(accuracy[1]+ accuracy[2] + accuracy[3])/3,"accuracy0": accuracy[0],"accuracy1": accuracy[1],"accuracy2": accuracy[2],"accuracy3": accuracy[3],"mean_dice":(dsc_image[0]+dsc_image[1]+dsc_image[2])/3,"epoch":epoch})
@@ -212,15 +199,19 @@ class MyModel(object):
             printProgressBar(j + 1, num_batches,
                              prefix="[Training] Epoch: {} ".format(epoch),
                              length=15,
-                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}, Dices: [{:.4f},{:.4f},{:.4f}], mean Dice : {:.4f}"    
-                             .format(loss_value.cpu(),accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice,dsc_image[0],dsc_image[1],dsc_image[2],(dsc_image[0]+dsc_image[1]+dsc_image[2])/3))
+                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dices: [{:.4f},{:.4f},{:.4f}], mean Dice : {:.4f}"    
+                             .format(loss_value.cpu(),accuracy[0],accuracy[1],accuracy[2],accuracy[3],dsc_image[0],dsc_image[1],dsc_image[2],(dsc_image[0]+dsc_image[1]+dsc_image[2])/3))
+        
+        # Compute the mean accuracy and the mean dice score of all the batches
         dice1 = statistics.mean(DSC_All_class1)
         dice2 = statistics.mean(DSC_All_class2)
         dice3 = statistics.mean(DSC_All_class3)
         dicemean = (dice1+dice2+dice3)/3
+
         mean_dice = mean_dice / num_batches
         mean_acc = mean_acc / num_batches
         mean_acc[np.isnan(mean_acc)] = 0
+
         loss_epoch = np.asarray(loss_epoch).mean()
 
         self.loss_training.append(loss_epoch)
@@ -241,6 +232,7 @@ class MyModel(object):
         DSC_All_class3 = []
 
         for j, data in enumerate(self.val_loader):
+            #Getting images and taret
             images, targets, _ = data
             if torch.cuda.is_available():
                 images, targets = images.cuda(), targets.cuda()
@@ -249,21 +241,22 @@ class MyModel(object):
 
             segmentationClasses = getTargetSegmentation(labels)
 
+            #Forward pass, making the predictions
             pred = self.model.forward(images.float())
             pred_y = self.softMax(pred)
-            # pred = self.softMax(self.model.forward(images.float()))
+
+            #Computing the loss
             loss_value = self.loss(pred, segmentationClasses)
-            dice = self.loss2_factor*self.dice(pred, targets)
-            # loss_value = loss_value + dice
+
+            #Compute the accuracy and the dice score
             accuracy, dsc_image = evaluation(pred_y, segmentationClasses, self.num_classes)
+
             mean_acc += accuracy
-            mean_dice += dice.cpu().data.numpy()
             DSC_All_class1.append(dsc_image[0])
             DSC_All_class2.append(dsc_image[1])
             DSC_All_class3.append(dsc_image[2])
-            #Eval_HD = np.zeros(4)
-            #for i in range(0, 4):
-            #    Eval_HD[i] = losses.HausdorffLoss(pred[0,i,:,:], labels[0,i,:,:])
+
+            #For experiment tracking
             if WANDB_TRACKING:
                 try:
                     wandb.log({"val_loss": loss_value,"val_mean_accuracy": (accuracy[1]+accuracy[2]+accuracy[3])/3,"val_accuracy0": accuracy[0],"val_accuracy1": accuracy[1],"val_accuracy2": accuracy[2],"val_accuracy3": accuracy[3],"val_mean_dice": (dsc_image[0]+dsc_image[1]+dsc_image[2])/3,"epoch":epoch})
@@ -271,11 +264,12 @@ class MyModel(object):
                     pass
 
             loss_epoch.append(loss_value.cpu().data.numpy())
+
             printProgressBar(j + 1, num_batches,
                              prefix="[Validation] Epoch: {} ".format(epoch),
                              length=15,
-                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dice: {:.4f}, Dices: [{:.4f},{:.4f},{:.4f}], mean Dice : {:.4f}"
-                             .format(loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3],dice, dsc_image[0],dsc_image[1],dsc_image[2],(dsc_image[0]+dsc_image[1]+dsc_image[2])/3))
+                             suffix=" Loss: {:.4f}, Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], Dices: [{:.4f},{:.4f},{:.4f}], mean Dice : {:.4f}"
+                             .format(loss_value,accuracy[0],accuracy[1],accuracy[2],accuracy[3], dsc_image[0],dsc_image[1],dsc_image[2],(dsc_image[0]+dsc_image[1]+dsc_image[2])/3))
         
         dice1 = statistics.mean(DSC_All_class1)
         dice2 = statistics.mean(DSC_All_class2)
@@ -288,9 +282,9 @@ class MyModel(object):
         loss_epoch = np.asarray(loss_epoch).mean()
         self.loss_validation.append(loss_epoch)
 
+        #Save the model if it has the lowest loss
         is_saved = False
-        if dicemean > self.best_dice:
-            self.best_dice = dicemean
+        if loss_epoch < self.best_loss:
             is_saved = True
             self.save(epoch)
         
@@ -310,6 +304,7 @@ class MyModel(object):
         mean_acc = np.array([0,0,0,0]).astype(float)
         num_batches = len(self.test_loader)
 
+        # Path for saving results
         path = os.path.join('./ResultsMain/Images/')
         if not os.path.exists(path):
             os.makedirs(path)
@@ -322,9 +317,11 @@ class MyModel(object):
             
             segmentationClasses = getTargetSegmentation(labels)
 
+            #Forward pass, making the predictions
             pred = self.model.forward(images.float())
             pred_y = self.softMax(pred)
-            accuracy=0
+            
+            #Compute the accuracy and the dice score
             accuracy, dsc_image = evaluation(pred_y, segmentationClasses, self.num_classes)
 
             DSC_All_class1.append(dsc_image[0])
@@ -335,12 +332,7 @@ class MyModel(object):
             masks = torch.argmax(pred_y, dim=1)
             masks=masks.view((256,256))
             
-            #loss_value = self.loss(pred, segmentationClasses)
-            #accuracy = evaluation(pred, labels, self.num_classes)
-            #mean_acc += accuracy
-
-           #loss_epoch.append(loss_value.cpu().data.numpy())
-
+            #Save the results, same format as the testChallenge file
             torchvision.utils.save_image(torch.cat([images.data, labels.data, masks.view(labels.shape[0],1,256,256).data/3.0]),os.path.join(path,str(j)+'.png'), padding=0)
 
             printProgressBar(j + 1, num_batches,
@@ -360,8 +352,11 @@ class MyModel(object):
                              done="[Inference], LossG: {:.4f}, Mean Acc: [{:.4f},{:.4f},{:.4f},{:.4f}], dices : [{:.4f},{:.4f},{:.4f}], mean dice : {:.4f}".format(loss_epoch,mean_acc[0],mean_acc[1],mean_acc[2],mean_acc[3],dice1,dice2,dice3,dicemean))
 
     def save(self, epoch):
+        # Save the model, the optimizer and the losses. We want to set the new best loss here
         self.best_loss = self.loss_validation[epoch]
         self.best_epoch = epoch
+
+        # Save the model
         if not os.path.exists(self.model_directory):
             os.makedirs(self.model_directory)
         torch.save({'epoch': epoch,
@@ -373,6 +368,7 @@ class MyModel(object):
                     'optimizer_state_dict': self.optimizer.state_dict(),
                     }, self.model_directory + '/best_model')
         
+        # Save the losses
         if not os.path.exists(self.losses_directory):
             os.makedirs(self.losses_directory)
         np.save(os.path.join(self.losses_directory, 'losses.npy'),
@@ -387,6 +383,8 @@ class MyModel(object):
         except:
             print('Pas de losses pour le modèle {}'.format(self.args.name))
 
+    # Creating pseudo-labels for semi-supervised learning, with the currently loaded model
+    # Warning : if no model is loaded, it will create pseudo-labels with an untrained model (bad idea)
     def create_pseudo(self):
         root_dir = self.args.root_dir
         self.model.eval()
@@ -400,7 +398,7 @@ class MyModel(object):
         mask_transform = transforms.Compose([
             transforms.ToTensor()
         ])
-
+        # We want a dataloader for the unlabelled data
         semi_set = medicalDataLoader.MedicalImageDataset('loadsemi',
                                                         root_dir,
                                                         transform=transform,
@@ -411,10 +409,11 @@ class MyModel(object):
                                 batch_size=1,
                                 num_workers=5,
                                 shuffle=False)
-        
+        # Creating path for the pseudo-labels
         save_path = './Data/train/GTsemi/'
         if not os.path.exists(save_path):
                 os.makedirs(save_path)
+
         for j, data in enumerate(semi_loader):
             images, labels, paths = data
             save_path = paths[0].replace('Img-Unlabeled','GTsemi')
@@ -422,12 +421,14 @@ class MyModel(object):
             images = images.cuda()
             images = to_var(images)
 
+            #Forward pass, making the predictions
             pred = self.model.forward(images.float())
             pred_y = self.softMax(pred)
 
             masks = torch.argmax(pred_y, dim=1)
             masks=masks.view((256,256))
 
+            #Save the generated pseudo-labels
             torchvision.utils.save_image(masks.view(labels.shape[0],1,256,256).data/3.0,save_path, padding=0)
         print("Pseudo-labels créés !")
 
@@ -445,7 +446,7 @@ def main():
     parser.add_argument('--loss-weights', nargs='+', type=float, default=None, action='store',
                         help='Liste de 4 poids (défaut: None)')
     parser.add_argument('--model', type=str, default='Unet',
-                        choices=['Unet', 'UnetBoosted', 'UnetHigher', 'UnetPP','MNet'],
+                        choices=['Unet', 'UnetBoosted', 'MANet', 'UnetPP','FPN'],
                         help='Choix du modèle (défaut: Unet)')
     parser.add_argument('--num-workers', type=int, default=0,
                         help='Nombre de coeurs pour les dataloaders (défaut: 0)')

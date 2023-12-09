@@ -9,7 +9,7 @@ aux_params=dict( #Paramètres pour le modèle
         )
 
 # Création du modèle, on va chercher l'architecture grâce à segmentation_models_pytorch
-class Unet_pp(smp.UnetPlusPlus):
+class FPN(smp.FPN):
     def __init__(self, num_classes):
         super().__init__('resnet34',encoder_weights='imagenet', classes=num_classes, aux_params=aux_params,in_channels=1)
 

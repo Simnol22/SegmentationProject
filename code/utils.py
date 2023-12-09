@@ -20,7 +20,7 @@ from torchmetrics import ConfusionMatrix
 # from scipy.spatial.distance import directed_hausdorff
 
 
-def testDSC(pred, labels): #Code de test DSC pris du code de testChallenge.py
+def testDSC(pred, labels): #Code de test DSC pris du code de testChallenge.py pour évaluer les performances
     masks = pred.view((256, 256))
     DSC_image = []
     for c_i in range(3):
@@ -37,8 +37,8 @@ def testDSC(pred, labels): #Code de test DSC pris du code de testChallenge.py
     return DSC_image
 
 def evaluation(pred, labels, num_classes):
-    
     batch_size = pred.shape[0]
+    
     if torch.cuda.is_available():
         confmat = ConfusionMatrix(task="multiclass", num_classes=num_classes).to(torch.device("cuda:0" if torch.cuda.is_available() else "cpu"))
     else:
@@ -51,6 +51,7 @@ def evaluation(pred, labels, num_classes):
         confmat = confmat(confmask, labels).cpu().numpy()
     else:
         confmat = confmat(masks, labels).cpu().numpy()
+    # Calculate accuracy
     accuracy = np.array([confmat[0,0]/confmat[:,0].sum(),
                          confmat[1,1]/confmat[:,1].sum(),
                          confmat[2,2]/confmat[:,2].sum(),
@@ -67,6 +68,8 @@ def evaluation(pred, labels, num_classes):
     res[res>1] = 1
     res[accuracy == float('nan')] = 0
     res[np.isnan(res)] = 0
+    
+    # Calculate DSC
     diceImages1 = []
     diceImages2 = []
     diceImages3 = []
@@ -141,32 +144,6 @@ def save_args_to_sh(args):
 
 
 labels = {0: 'Background', 1: 'Foreground'}
-
-# def computeDSC(pred, gt):
-
-#     dscAll= np.zeros((pred.shape[0],4))
-
-#     for i_b in range(pred.shape[0]):
-#         gt_id = (gt[i_b, 0, :]/0.005).round()
-#         for i_c in range(pred.shape[1]-1):
-#             pred_id = pred[i_b,i_c+1,:]
-#             gt_class = np.zeros((gt_id.cpu().data.numpy().shape))
-#             idx = np.where(gt_id.cpu().data.numpy()==(i_c+1))
-#             gt_class[idx]=1
-#             dscAll[i_b,i_c]=(dc(pred_id.cpu().data.numpy(),gt_class))
-
-#     return dscAll.mean(axis=0)
-
-def computeDSC(pred, gt):
-    dscAll = []
-    for i_b in range(pred.shape[0]):
-        pred_id = pred[i_b, 1, :]
-        gt_id = gt[i_b, 0, :]
-        dscAll.append(dc(pred_id.cpu().data.numpy().astype(float), gt_id.cpu().data.numpy().astype(float)))
-    DSC = np.asarray(dscAll)
-
-    return DSC.mean()
-
 
 def getImageImageList(imagesFolder):
     if os.path.exists(imagesFolder):
