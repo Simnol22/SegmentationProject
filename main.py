@@ -5,12 +5,11 @@ from medicalDataLoader import MyDataloader
 import medicalDataLoader
 from torch.utils.data import DataLoader
 from utils import *
-from UNet_Base import *
-from UNet_Boosted import *
-from MANet import *
-from Unet_pp import *
-from DC_Unet import *
-from FPN import *
+from Models.UNet_Base import *
+from Models.UNet_Boosted import *
+from Models.MANet import *
+from Models.Unet_pp import *
+from Models.FPN import *
 import segmentation_models_pytorch as smp
 from data_augmentation import augment_data
 import losses
